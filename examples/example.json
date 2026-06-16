@@ -1,0 +1,102 @@
+{
+  "tracking": {
+    "commit": true
+  },
+  "git": {
+    "baseBranch": "main",
+    "branchPrefix": "task/",
+    "mergeMethod": "squash",
+    "commitTrailer": ""
+  },
+  "ci": {
+    "required": true,
+    "maxFixAttempts": 2
+  },
+  "engine": {
+    "maxFixRounds": 3,
+    "maxTaskTokens": null
+  },
+  "merge": {
+    "highRiskPaths": ["**/migrations/**", "**/schema.prisma", "**/rls.sql", ".github/workflows/**"],
+    "highRiskPatterns": ["auth", "billing", "payment"]
+  },
+  "preflight": {
+    "infra": ["docker compose up -d"],
+    "healthChecks": ["pg_isready -h localhost -p 5432"],
+    "smokeTest": "npm run typecheck",
+    "devServers": {
+      "check": "lsof -i :3000",
+      "start": "npm run dev",
+      "ports": [3000]
+    }
+  },
+  "project": {
+    "name": "example-app",
+    "readFirst": [
+      "CLAUDE.md (if present)",
+      "README.md",
+      "docs/ARCHITECTURE.md"
+    ],
+    "rules": [
+      "Clean cutover: delete obsolete code; no backfill/dual-read/compat shims unless the task says so; clean stale code first, then implement.",
+      "Match the surrounding code style; reuse existing helpers and patterns instead of inventing parallel ones.",
+      "All writes go through the audited write path — never write tenant-scoped tables directly.",
+      "Keep the build, typecheck, and existing tests green at every stage."
+    ],
+    "environment": [
+      "Local DB is UP: postgresql://dev:dev@localhost:5432/app",
+      "Dev URLs (local only): API http://localhost:4000, web http://localhost:3000."
+    ],
+    "forbidden": [
+      "NEVER trigger a deploy or touch shared/staging/production infrastructure or databases.",
+      "NEVER verify against staging/production URLs — local dev servers only."
+    ],
+    "implementationNotes": [
+      "Migrations: from the db package run `npx prisma migrate dev --name <snake_case>` (DB is up), then regenerate the client with `npm run -w packages/db generate`.",
+      "Typecheck each touched package with `npx tsc --noEmit` (or the package's `npm run typecheck`)."
+    ],
+    "reconAreas": [
+      {
+        "key": "backend-persistence",
+        "prompt": "Map the API/service/persistence code this task touches: the relevant modules under apps/api/src/, the data layer (Prisma schema + access helpers). State current behavior with file:line refs and how it differs from the target for THIS task."
+      },
+      {
+        "key": "interfaces",
+        "prompt": "Map the API surface this task touches: routes/endpoints/handlers and their input/output shapes; which exist, which are missing."
+      },
+      {
+        "key": "frontend-scope",
+        "prompt": "Map the web frontend scope: which routes/pages/components show or edit the data this task changes, and how they call the API. If the UI is untouched by this task, say so explicitly."
+      },
+      {
+        "key": "tests-fixtures",
+        "prompt": "Map the test patterns: where API/integration + database tests live and how they are run; the Playwright/UI setup; and existing fixtures/seeds useful for THIS task."
+      }
+    ],
+    "staticChecks": [
+      { "label": "lint", "command": "`npm run lint` at the repo root (no --fix)." },
+      { "label": "typecheck", "command": "Typecheck every package this task touched: `npx tsc --noEmit` in each." },
+      { "label": "tests", "command": "`npm test` — the full unit/integration suite." }
+    ],
+    "testing": {
+      "api": "Author integration tests under apps/api that exercise the affected endpoints with the repo's runner (e.g. `npm test -- <file>`). Assert success responses AND error/edge cases (validation, auth, not-found, conflict).",
+      "database": "In the same test, assert the resulting DB state directly: rows created/updated/soft-deleted, audit/log rows written, and no drift between the API response and the persisted record.",
+      "ui": "A Playwright spec under tests/e2e/ that drives the affected UI flow and asserts the DB side-effect (query the local DB). Follow an existing spec for login helpers + selectors. Requires dev servers up."
+    },
+    "docs": [
+      "docs/ARCHITECTURE.md — update when modules, data flow, or schema change.",
+      "README.md — update setup/usage when commands or env change."
+    ],
+    "testGuard": {
+      "testGlobs": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "tests/e2e/**"],
+      "forbiddenMarkers": [".skip(", ".only(", "xit(", "test.skip", "it.skip", "describe.skip"],
+      "protectedPaths": [".github/workflows/", "tests/"]
+    },
+    "invariants": [
+      "Every mutation is written through the audited write path so there is BOTH a change-log row AND a matching update to the materialized record, with the live value equal to the row's after-value — no record write without a log row, no log row without the record reflecting it.",
+      "Every delete is a SOFT delete: a change-log delete row is appended (the before-value preserves the record) and the record stops surfacing — no orphaned rows still showing.",
+      "Any new tenant-scoped table has a row-level-security policy added AND applied."
+    ],
+    "uiSurfaces": ["web"]
+  }
+}

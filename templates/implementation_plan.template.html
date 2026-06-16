@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<!--
+  loop-engineering · SPRINT PLAN
+  ────────────────────────────────────────────────────────────────────────
+  This page renders itself from the JSON in <script id="plan-data">.
+  The loop edits ONLY that JSON block — never the markup below it.
+
+  plan-data shape:
+  {
+    "sprint":        "docs/sprint1",            // the sprint folder
+    "title":         "short sprint title",
+    "description":   "the sprint description the plan was generated from",
+    "generatedFrom": "YYYY-MM-DD by /loop-engineering",
+    "tasks": [
+      {
+        "id": "S1-T1", "title": "...", "goal": "...",
+        "surfaces": ["api","admin"],            // backend labels + UI surface names
+        "acceptance": ["criterion 1", "criterion 2"],
+        "outOfScope": ["..."],
+        "dependsOn": [],                          // task ids that must merge first
+        "detailed": true,                         // false = scaffold; the loop pauses to ask
+        "record": null                            // filled by the loop after the task merges:
+        //   { "pr": 123, "mergedAt": "YYYY-MM-DD",
+        //     "design":   { "summary","core","dataModel","surfaces","acceptanceCriteria" },
+        //     "techSpec": { "summary","fileChanges","apiContracts","dataModel","sequencing","edgeCases" } }
+      }
+    ]
+  }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprint plan</title>
+<script id="plan-data" type="application/json">
+{
+  "sprint": "",
+  "title": "",
+  "description": "",
+  "generatedFrom": "",
+  "tasks": []
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2rem; max-width: 1100px; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .6rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  .muted { opacity: .65; }
+  .desc { background: #8881; border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #8883; vertical-align: top; font-size: .92rem; }
+  th { font-weight: 600; opacity: .8; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
+  .pill { display: inline-block; font-size: .72rem; padding: .08rem .5rem; border-radius: 999px; background: #8883; margin: 0 .2rem .2rem 0; }
+  .scaffold { color: #b8860b; font-weight: 600; }
+  .card { border: 1px solid #8884; border-radius: 8px; padding: 1rem 1.1rem; margin: 1rem 0; }
+  .card h3 { margin: 0 0 .4rem; font-size: 1rem; }
+  .card .field { margin: .4rem 0; }
+  .card .field b { opacity: .75; font-weight: 600; }
+  ul { margin: .3rem 0 .3rem 1.1rem; padding: 0; }
+  .empty { opacity: .6; font-style: italic; }
+</style>
+</head>
+<body>
+<div id="render"></div>
+<script>
+(function () {
+  var data;
+  try { data = JSON.parse(document.getElementById('plan-data').textContent); }
+  catch (e) { document.getElementById('render').innerHTML = '<p class="empty">plan-data JSON is invalid: ' + e + '</p>'; return; }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var list = function (arr) { return (arr && arr.length) ? '<ul>' + arr.map(function (x) { return '<li>' + esc(typeof x === 'string' ? x : (x.text || JSON.stringify(x))) + '</li>'; }).join('') + '</ul>' : '<span class="empty">—</span>'; };
+  var pills = function (arr) { return (arr && arr.length) ? arr.map(function (x) { return '<span class="pill">' + esc(x) + '</span>'; }).join('') : '<span class="empty">—</span>'; };
+  var tasks = data.tasks || [];
+  var h = '';
+  h += '<h1>' + (esc(data.title) || 'Sprint plan') + '</h1>';
+  h += '<div class="muted">' + esc(data.sprint || '') + (data.generatedFrom ? ' · generated ' + esc(data.generatedFrom) : '') + '</div>';
+  if (data.description) h += '<div class="desc">' + esc(data.description) + '</div>';
+
+  h += '<h2>Tasks (' + tasks.length + ')</h2>';
+  if (!tasks.length) {
+    h += '<p class="empty">No tasks yet.</p>';
+  } else {
+    h += '<table><thead><tr><th>ID</th><th>Title</th><th>Surfaces</th><th>Depends on</th><th>State</th></tr></thead><tbody>';
+    tasks.forEach(function (t) {
+      var st = t.record ? '✓ merged' + (t.record.pr ? ' #' + esc(t.record.pr) : '') : (t.detailed === false ? '<span class="scaffold">scaffold</span>' : 'planned');
+      h += '<tr><td><code>' + esc(t.id) + '</code></td><td>' + esc(t.title) + '</td><td>' + pills(t.surfaces) + '</td><td>' + pills(t.dependsOn) + '</td><td>' + st + '</td></tr>';
+    });
+    h += '</tbody></table>';
+
+    h += '<h2>Task detail</h2>';
+    tasks.forEach(function (t) {
+      h += '<div class="card" id="task-' + esc(t.id) + '">';
+      h += '<h3><code>' + esc(t.id) + '</code> — ' + esc(t.title) + '</h3>';
+      h += '<div class="field"><b>Goal:</b> ' + esc(t.goal) + '</div>';
+      h += '<div class="field"><b>Acceptance:</b></div>' + list(t.acceptance);
+      if (t.outOfScope && t.outOfScope.length) h += '<div class="field"><b>Out of scope:</b></div>' + list(t.outOfScope);
+      var r = t.record;
+      if (r) {
+        if (r.design) {
+          h += '<div class="field"><b>Design:</b> ' + esc(r.design.summary) + '</div>';
+          if (r.design.core) h += '<div class="field"><b>Core:</b> ' + esc(r.design.core) + '</div>';
+          if (r.design.dataModel && r.design.dataModel !== 'none') h += '<div class="field"><b>Data model:</b> ' + esc(r.design.dataModel) + '</div>';
+        }
+        if (r.techSpec) {
+          h += '<div class="field"><b>Tech spec:</b> ' + esc(r.techSpec.summary) + '</div>';
+          if (r.techSpec.fileChanges && r.techSpec.fileChanges.length) {
+            h += '<div class="field"><b>File changes:</b></div><ul>' + r.techSpec.fileChanges.map(function (f) { return '<li><code>' + esc(f.path) + '</code> (' + esc(f.change) + ') — ' + esc(f.detail) + '</li>'; }).join('') + '</ul>';
+          }
+        }
+        h += '<div class="muted">merged ' + esc(r.mergedAt || '') + (r.pr ? ' in #' + esc(r.pr) : '') + '</div>';
+      }
+      h += '</div>';
+    });
+  }
+  document.getElementById('render').innerHTML = h;
+})();
+</script>
+</body>
+</html>

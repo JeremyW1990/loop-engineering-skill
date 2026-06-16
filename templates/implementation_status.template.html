@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<!--
+  loop-engineering · SPRINT STATUS (live tracking)
+  ────────────────────────────────────────────────────────────────────────
+  This page renders itself from the JSON in <script id="status-data">.
+  The loop edits ONLY that JSON block — never the markup below it.
+
+  status-data shape:
+  {
+    "updated": "YYYY-MM-DD",
+    "currentCycle": null,                         // or { task, title, branch, phase, startedAt, note }
+    "tasks": {
+      "S1-T1": { "status": "todo", "phase": null, "branch": null, "pr": null, "mergedAt": null, "note": null }
+      //  status ∈ todo | in_progress | blocked | done
+    },
+    "log": [ { "at": "YYYY-MM-DD", "task": "S1-T1", "event": "merged in #123 — one-line" } ],
+    "ledger": [ { "at": "YYYY-MM-DD", "task": "S1-T1", "entries": [ { "rootCauseClass": "unmet-criterion", "fix": "…" } ] } ]
+    //  ^ cross-task failure memory (Tier 2): each task appends its defects+fixes; the loop feeds recent entries forward
+  }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprint status</title>
+<script id="status-data" type="application/json">
+{
+  "updated": "",
+  "currentCycle": null,
+  "tasks": {},
+  "log": [],
+  "ledger": []
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2rem; max-width: 1000px; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .6rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  .muted { opacity: .65; }
+  .summary { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .chip { border-radius: 999px; padding: .25rem .8rem; font-size: .85rem; font-weight: 600; }
+  .chip.todo { background: #8883; }
+  .chip.in_progress { background: #2f6feb33; color: #2f6feb; }
+  .chip.blocked { background: #d1242f33; color: #d1242f; }
+  .chip.done { background: #1a7f3733; color: #1a7f37; }
+  .banner { border-left: 4px solid #2f6feb; background: #2f6feb14; border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #8883; font-size: .92rem; }
+  th { font-weight: 600; opacity: .8; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
+  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
+  .dot.todo { background: #999; } .dot.in_progress { background: #2f6feb; } .dot.blocked { background: #d1242f; } .dot.done { background: #1a7f37; }
+  .empty { opacity: .6; font-style: italic; }
+  .log li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+<div id="render"></div>
+<script>
+(function () {
+  var data;
+  try { data = JSON.parse(document.getElementById('status-data').textContent); }
+  catch (e) { document.getElementById('render').innerHTML = '<p class="empty">status-data JSON is invalid: ' + e + '</p>'; return; }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var tasks = data.tasks || {};
+  var ids = Object.keys(tasks);
+  var order = ['todo', 'in_progress', 'blocked', 'done'];
+  var counts = { todo: 0, in_progress: 0, blocked: 0, done: 0 };
+  ids.forEach(function (id) { var s = tasks[id].status || 'todo'; if (counts[s] == null) counts[s] = 0; counts[s]++; });
+
+  var h = '';
+  h += '<h1>Sprint status</h1>';
+  h += '<div class="muted">updated ' + (esc(data.updated) || '—') + ' · ' + ids.length + ' task' + (ids.length === 1 ? '' : 's') + '</div>';
+
+  h += '<div class="summary">';
+  order.forEach(function (s) { h += '<span class="chip ' + s + '">' + counts[s] + ' ' + s.replace('_', ' ') + '</span>'; });
+  h += '</div>';
+
+  var c = data.currentCycle;
+  if (c) {
+    h += '<div class="banner"><b>In progress:</b> <code>' + esc(c.task) + '</code> ' + esc(c.title || '') +
+         ' — phase <b>' + esc(c.phase || '?') + '</b>' + (c.branch ? ' · <code>' + esc(c.branch) + '</code>' : '') +
+         (c.startedAt ? ' · started ' + esc(c.startedAt) : '') + (c.note ? '<br><span class="muted">' + esc(c.note) + '</span>' : '') + '</div>';
+  }
+
+  h += '<h2>Tasks</h2>';
+  if (!ids.length) {
+    h += '<p class="empty">No tasks tracked yet.</p>';
+  } else {
+    h += '<table><thead><tr><th>ID</th><th>Status</th><th>Phase</th><th>Branch</th><th>PR</th><th>Merged</th><th>Note</th></tr></thead><tbody>';
+    ids.forEach(function (id) {
+      var t = tasks[id]; var s = t.status || 'todo';
+      h += '<tr><td><code>' + esc(id) + '</code></td>' +
+           '<td><span class="dot ' + s + '"></span>' + esc(s.replace('_', ' ')) + '</td>' +
+           '<td>' + (esc(t.phase) || '—') + '</td>' +
+           '<td>' + (t.branch ? '<code>' + esc(t.branch) + '</code>' : '—') + '</td>' +
+           '<td>' + (t.pr ? '#' + esc(t.pr) : '—') + '</td>' +
+           '<td>' + (esc(t.mergedAt) || '—') + '</td>' +
+           '<td>' + (esc(t.note) || '') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+
+  var log = data.log || [];
+  h += '<h2>Log</h2>';
+  if (!log.length) { h += '<p class="empty">No events yet.</p>'; }
+  else {
+    h += '<ul class="log">';
+    log.slice().reverse().forEach(function (e) { h += '<li><span class="muted">' + esc(e.at) + '</span> · <code>' + esc(e.task) + '</code> — ' + esc(e.event) + '</li>'; });
+    h += '</ul>';
+  }
+
+  var entries = (data.ledger || []).reduce(function (acc, e) { (e.entries || []).forEach(function (x) { acc.push({ at: e.at, task: e.task, x: x }); }); return acc; }, []);
+  h += '<h2>Learnings (' + entries.length + ')</h2>';
+  if (!entries.length) { h += '<p class="empty">No recorded defects yet — cross-task failure memory.</p>'; }
+  else {
+    h += '<ul class="log">';
+    entries.slice().reverse().forEach(function (e) { h += '<li><span class="muted">' + esc(e.at) + '</span> · <code>' + esc(e.task) + '</code> · [' + esc(e.x.rootCauseClass || 'fix') + '] ' + esc(e.x.fix || '') + '</li>'; });
+    h += '</ul>';
+  }
+  document.getElementById('render').innerHTML = h;
+})();
+</script>
+</body>
+</html>
