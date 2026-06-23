@@ -1,7 +1,7 @@
 export const meta = {
   name: 'loop-task-flow',
   description:
-    'Per-ticket loop-engineering engine: recon → design (the "done" contract) → technical spec (the file-level engineering plan) → code (drift-plan → clean-cutover implement) → validate (DESIGN happy/negative/edge test cases, then author+run them across UI/Playwright + API + database, loop-until-green) → docs (update affected project documentation) → clean-room verify. May PAUSE before coding and return open questions for a human (needsHuman) — asking is encouraged. Project-agnostic: all project specifics arrive via args.project (see CONFIG.md next to this script). Leaves changes in the working tree and returns a verified/blocked/needsHuman report + the design + technical spec + a PR body. Called once per ticket by the /loop-engineering master.',
+    'Per-ticket loop-engineering engine: recon → design (the "done" contract) → technical spec (the file-level engineering plan) → code (drift-plan → clean-cutover implement) → validate (DESIGN happy/negative/edge test cases, then author+run them across API + database + a REAL-BROWSER Playwright-MCP UI drive that clicks through the live UI and screenshots it, loop-until-green) → docs (update affected project documentation) → clean-room verify. May PAUSE before coding and return open questions for a human (needsHuman) — asking is encouraged. Project-agnostic: all project specifics arrive via args.project (see CONFIG.md next to this script). Leaves changes in the working tree and returns a verified/blocked/needsHuman report + the design + technical spec + a PR body. Called once per ticket by the /loop-engineering master.',
   whenToUse:
     'One scoped task from a sprint plan. Pass the task spec via args.task (id, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[]) and the project config via args.project. Run standalone for a manual single task.',
   phases: [
@@ -9,7 +9,7 @@ export const meta = {
     { title: 'Design', detail: 'one synthesizer writes the contract: core/data-model/surface changes, build-green stages, acceptance criteria' },
     { title: 'Tech Spec', detail: 'one engineer writes the file-level technical spec: exact files/functions, API/endpoint signatures, schema DDL, sequencing, edge cases' },
     { title: 'Code', detail: 'code-plan (analyze drift; clean-cutover plan that removes stale code FIRST) → code-implement (sequential single-writer; each stage build-green)' },
-    { title: 'Validate', detail: 'DESIGN the test matrix first (happy + negative + edge per channel — cases that try to BREAK the code), then author + run them across API / database / UI (Playwright); loop with Code until green (capped); then the read-only static gate' },
+    { title: 'Validate', detail: 'DESIGN the test matrix first (happy + negative + edge per channel — cases that try to BREAK the code), then author + run them across API / database / UI — the UI channel drives a REAL browser via the Playwright MCP (click + screenshot), not just headless CLI specs; loop with Code until green (capped); then the read-only static gate' },
     { title: 'Docs', detail: 'update the project documentation the change affects (architecture/data-model/CLAUDE.md/READMEs), part of the reviewed diff' },
     { title: 'Verify', detail: 'CLEAN-ROOM independent check — sees only {contract, git diff, PR body}, never the coder transcript; adversarial refute per criterion + completeness critic' },
   ],
@@ -437,12 +437,12 @@ for (let i = 0; i < codeStages.length; i++) {
 phase('Validate')
 const uiClause = UI_ENABLED
   ? (SERVERS_UP
-      ? `UI (Playwright): author AND RUN a Playwright test driving the affected UI and asserting the resulting state. Project UI instructions: ${PROJECT.testing.ui}`
-      : `UI (Playwright): AUTHOR (do not run — dev servers are DOWN) a Playwright test for the affected UI; put its run instructions in summary. Project UI instructions: ${PROJECT.testing.ui}`)
+      ? `UI (REAL-BROWSER Playwright MCP — drive a live browser, NOT just headless CLI specs): load the Playwright MCP browser tools via ToolSearch (query "playwright browser"), then drive the ACTUAL running UI like a user — browser_navigate to the affected page, browser_snapshot to locate elements, browser_click / browser_type / browser_fill_form / browser_select_option for the real interactions, and browser_take_screenshot at the key BEFORE and AFTER states as visual evidence (save under .playwright-mcp/). Assert the on-screen result from the post-action snapshot AND the persisted backend/DB side-effect. ALSO author a durable headless Playwright regression spec so CI keeps covering this flow — but the real-browser MCP drive + screenshots is the REQUIRED proof the UI actually works, NOT a green CLI assertion alone. List the screenshot file paths in summary. Project UI instructions: ${PROJECT.testing.ui}`
+      : `UI (Playwright): dev servers are DOWN, so the real-browser Playwright MCP drive cannot run now. AUTHOR a durable headless Playwright regression spec for the affected UI, and in summary record BOTH its run command AND the real-browser MCP steps (browser_navigate → click/type → browser_take_screenshot) to replay once servers are up; defer the live run. Project UI instructions: ${PROJECT.testing.ui}`)
   : 'UI (Playwright): no UI surface touched / no UI tier — skip.'
 const apiClause = PROJECT.testing.api ? `API: ${PROJECT.testing.api}` : 'API: (no API channel configured — assert API/endpoint behavior in the backend test where relevant).'
 const dbClause = PROJECT.testing.database ? `DATABASE: ${PROJECT.testing.database}` : 'DATABASE: (no database channel configured — assert persisted state where relevant).'
-const activeChannels = [PROJECT.testing.api && 'API', PROJECT.testing.database && 'database', UI_ENABLED && 'UI (Playwright)'].filter(Boolean).join(', ') || 'the configured channels'
+const activeChannels = [PROJECT.testing.api && 'API', PROJECT.testing.database && 'database', UI_ENABLED && 'UI (real-browser Playwright MCP)'].filter(Boolean).join(', ') || 'the configured channels'
 
 // test-DESIGN — design the matrix (happy + negative + edge) BEFORE writing any test; never happy-path-only
 const testDesign = await agent(
@@ -479,7 +479,7 @@ while (!testReport.passed && round < MAX_FIX_ROUNDS) {
   fixHistory.push({ round, summary: fix.summary, addressed: fix.addressed || [], weakenedTests: !!fix.weakenedTests })
   if (fix.blocked) { codeBlocked = codeBlocked || `validate-fix: ${fix.blockReason || '(no reason)'}`; log(`BLOCKED during fix — stopping validate loop`); break }
   testReport = await agent(
-    `${BASE}\n\nRe-run the API/database test(s) for this task${UI_ENABLED && SERVERS_UP ? ' and the Playwright UI test' : ''} and report passed + failures + output tail. Run only — author nothing new. Do NOT commit.`,
+    `${BASE}\n\nRe-run the API/database test(s) for this task${UI_ENABLED && SERVERS_UP ? ' AND re-drive the real-browser Playwright MCP UI flow (browser_navigate → click/type → browser_take_screenshot) to confirm the fix on-screen, capturing a fresh AFTER screenshot' : ''} and report passed + failures + output tail. Run only — author nothing new. Do NOT commit.`,
     { label: `validate:rerun#${round}`, phase: 'Validate', agentType: 'general-purpose', schema: TEST_SCHEMA },
   )
 }
@@ -571,7 +571,7 @@ const failedCriteria = verdicts.filter((v) => v && !v.met).map((v) => ({ id: v.c
 const heldOutFeasible = BACKEND_ENABLED || (UI_ENABLED && SERVERS_UP)
 const heldOut = heldOutFeasible
   ? await agent(
-      `${CLEANROOM}\n\nHELD-OUT VERIFICATION (exception: you MAY add ONE new test file here — but do NOT modify existing code or tests). The coder optimized against its OWN tests; author ONE additional, INDEPENDENT test the coder never saw, to catch code that only passes the cases it wrote. Pick the single most important acceptance criterion and prove it with DIFFERENT, perturbed inputs (different values / ids / ordering / boundary than any existing test).${BACKEND_ENABLED ? ` Author it as a backend ${PROJECT.testing.api ? 'API/' : ''}database test in this repo's style and RUN it.` : ''}${UI_ENABLED && SERVERS_UP ? ' A Playwright check is acceptable for a UI-facing criterion.' : ''} Report authored/executed/passed + failures. If nothing is meaningfully testable (e.g. docs-only change) set authored=false + skippedReason.`,
+      `${CLEANROOM}\n\nHELD-OUT VERIFICATION (exception: you MAY add ONE new test file here — but do NOT modify existing code or tests). The coder optimized against its OWN tests; author ONE additional, INDEPENDENT test the coder never saw, to catch code that only passes the cases it wrote. Pick the single most important acceptance criterion and prove it with DIFFERENT, perturbed inputs (different values / ids / ordering / boundary than any existing test).${BACKEND_ENABLED ? ` Author it as a backend ${PROJECT.testing.api ? 'API/' : ''}database test in this repo's style and RUN it.` : ''}${UI_ENABLED && SERVERS_UP ? ' A real-browser Playwright MCP check (drive the live browser + screenshot) is acceptable for a UI-facing criterion.' : ''} Report authored/executed/passed + failures. If nothing is meaningfully testable (e.g. docs-only change) set authored=false + skippedReason.`,
       { label: 'verify:held-out', phase: 'Verify', agentType: 'general-purpose', schema: HELDOUT_SCHEMA },
     )
   : { authored: false, executed: false, passed: true, summary: 'held-out test skipped (no runnable channel for this task)', skippedReason: 'no backend channel and UI servers down' }

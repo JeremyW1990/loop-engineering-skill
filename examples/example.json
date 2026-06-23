@@ -81,7 +81,7 @@
     "testing": {
       "api": "Author integration tests under apps/api that exercise the affected endpoints with the repo's runner (e.g. `npm test -- <file>`). Assert success responses AND error/edge cases (validation, auth, not-found, conflict).",
       "database": "In the same test, assert the resulting DB state directly: rows created/updated/soft-deleted, audit/log rows written, and no drift between the API response and the persisted record.",
-      "ui": "A Playwright spec under tests/e2e/ that drives the affected UI flow and asserts the DB side-effect (query the local DB). Follow an existing spec for login helpers + selectors. Requires dev servers up."
+      "ui": "Drive the affected UI flow in a REAL browser via the Playwright MCP (load the browser tools via ToolSearch): navigate to the page, log in, click/type through the flow, and browser_take_screenshot the before/after states (save under .playwright-mcp/); assert both the on-screen result and the DB side-effect (query the local DB). Also author a durable headless Playwright regression spec under tests/e2e/ following an existing one for login helpers + selectors. Requires dev servers up."
     },
     "docs": [
       "docs/ARCHITECTURE.md — update when modules, data flow, or schema change.",

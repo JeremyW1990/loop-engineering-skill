@@ -1,6 +1,6 @@
 ---
 name: loop-engineering
-description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) implementation_plan.html + implementation_status.html, then autonomously drains the sprint: per task design → technical spec → code → validate (UI via Playwright / API / database, loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
+description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) implementation_plan.html + implementation_status.html, then autonomously drains the sprint: per task design → technical spec → code → validate (UI via a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI / API / database, loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
 argument-hint: "<sprintFolder> [sprint description…]   e.g. /loop-engineering docs/sprint1 Build the waitlist admin review flow   ·   /loop-engineering docs/sprint1   (resume)   ·   add `dryRun` to stop at the PR"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Workflow, AskUserQuestion
 ---
@@ -90,9 +90,10 @@ from it, so there is no hand-written HTML to keep in sync.
 2. Local infra up: run each `preflight.infra` command (idempotent — e.g. `docker compose up -d`), then each
    `preflight.healthChecks` command; all must pass before continuing.
 3. Dev servers (only if the config defines `preflight.devServers`): run its `check` command. If down, run `start`
-   **in the background** and poll until `ports` bind (~60–90s). Servers must be **UP** for the Playwright UI channel to
-   *run*; if they won't come up, continue with `serversUp:false` — the engine then *authors* the Playwright tests but
-   defers running them, and you note that in the PR. **Never smoke-test against shared/staging/prod environments.**
+   **in the background** and poll until `ports` bind (~60–90s). Servers must be **UP** for the real-browser
+   Playwright-MCP UI channel to *run* (it drives a live browser — clicks + screenshots — against those servers); if they
+   won't come up, continue with `serversUp:false` — the engine then *authors* the headless regression spec but defers the
+   live real-browser drive, and you note that in the PR. **Never smoke-test against shared/staging/prod environments.**
 4. Re-read `PLAN` + `STATUS`. Build the task list with live status. **Treat git history + actual test results as ground
    truth** — if the status page disagrees with what's actually merged on the base branch, trust git and correct the page
    (a crashed prior run can leave the page stale).
@@ -137,7 +138,7 @@ It runs in the background; wait for the completion notification, then read its r
 **Recon** → **Design** (the done-contract) → **Technical Spec** (file-level engineering plan) → **Code** (drift-plan →
 clean-cutover implement, each stage build-green) → **Validate** (DESIGNS a test matrix first — several happy, negative,
 AND edge cases per channel, weighted toward cases that break the code — then authors + runs them across API/database
-and, when a UI surface is touched + servers up, Playwright UI; loops with Code until green or `maxFixRounds`; then the
+and, when a UI surface is touched + servers up, a real-browser Playwright-MCP UI drive (navigate → click/type → screenshot the live UI); loops with Code until green or `maxFixRounds`; then the
 read-only static gate, then a **deterministic anti-tamper check** that the coder didn't weaken tests/CI to go green) →
 **Docs** (updates the affected project documentation, part of the diff) → clean-room **Verify** (independent agents that
 see only the contract + diff + PR body; the completeness critic rejects a happy-path-only suite; a **held-out** agent

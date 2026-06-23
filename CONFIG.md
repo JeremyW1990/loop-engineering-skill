@@ -42,7 +42,7 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
     "devServers": {                             // omit entirely if the project needs no running servers for UI tests
       "check": "lsof -i :3000",
       "start": "npm run dev",
-      "ports": [3000]                           // servers must be UP for the Playwright UI channel to RUN (else it is authored-only)
+      "ports": [3000]                           // servers must be UP for the real-browser Playwright-MCP UI channel to RUN (else the headless spec is authored-only)
     }
   },
 
@@ -79,7 +79,7 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
     "testing": {                                // the three validation channels (empty string ⇒ skip that channel)
       "api":      "How to author + run API/integration tests: location, runner command, what to assert (responses, error cases).",
       "database": "How to assert resulting DB state in the same test: which tables/rows/audit logs, soft-delete semantics, no-drift checks.",
-      "ui":       ""                            // Playwright UI instructions; empty = project has no UI tier
+      "ui":       ""                            // real-browser Playwright-MCP UI instructions (which page/flow to drive + screenshot); empty = project has no UI tier
     },
     "docs": [                                   // documentation the Docs phase keeps in sync (files/globs + how); omit = just keep readFirst accurate
       "docs/ARCHITECTURE.md — update when modules/data-flow change",
@@ -127,9 +127,14 @@ are committed to the repo as tracking commits (separate from task code), per `tr
 - **`project.rules` vs `implementationNotes`** — rules are *what must always hold* (architecture, security, style);
   implementationNotes are *how to operate this repo* (commands to run per stage). Both are injected into coder prompts.
 - **`project.testing` (the three channels)** — the engine's Validate phase authors + runs **api**, **database**, and
-  **ui** (Playwright) tests. `api`/`database` typically share one backend integration test (assert the response AND the
-  persisted state); `ui` is a separate Playwright spec. The **ui** channel runs only when a task's `surfaces` intersects
-  `uiSurfaces` AND `testing.ui` is non-empty AND dev servers are up (else it's authored but not run, noted in the PR).
+  **ui** tests. `api`/`database` typically share one backend integration test (assert the response AND the
+  persisted state). The **ui** channel is a **real-browser Playwright-MCP drive**: the agent loads the Playwright MCP
+  browser tools (via ToolSearch) and clicks through the LIVE UI like a user — navigate → click/type/fill →
+  `browser_take_screenshot` at the before/after states — asserting the on-screen result AND the persisted side-effect;
+  it also authors a durable headless regression spec for CI, but the real-browser drive + screenshots is the required
+  proof (a green CLI assertion alone is NOT enough). The **ui** channel runs only when a task's `surfaces` intersects
+  `uiSurfaces` AND `testing.ui` is non-empty AND dev servers are up (else the headless spec is authored but the live
+  drive is deferred, noted in the PR).
   Leave any channel `""` to skip it. The engine **designs a test matrix first** — several **happy, negative, AND edge**
   cases per channel, weighted toward cases that break the code — before writing any test; a happy-path-only suite is
   rejected by the clean-room critic. Phrase each channel's instructions to point at the negative/edge cases that matter

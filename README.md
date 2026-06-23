@@ -2,9 +2,9 @@
 
 A project-agnostic [Claude Code](https://claude.com/claude-code) **skill** that runs an autonomous *sprint
 loop-engineering cycle*: point it at a sprint folder and a description, and it plans the sprint, then drains it
-task-by-task — each task going through **design → technical spec → code → validate (UI via Playwright / API / database)
-→ docs → an independent clean-room review**, then a **risk-gated auto-merge** — pausing to ask a human on any genuine
-ambiguity.
+task-by-task — each task going through **design → technical spec → code → validate (UI via a real-browser Playwright-MCP
+drive that clicks + screenshots the live UI / API / database) → docs → an independent clean-room review**, then a
+**risk-gated auto-merge** — pausing to ask a human on any genuine ambiguity.
 
 It's built on Anthropic's [Harness Design for Long-Running Agent Tasks](https://www.anthropic.com/engineering/harness-design-long-running-apps)
 (a generator writes, an independent evaluator verifies, against a contract agreed *before* any code is written) and
