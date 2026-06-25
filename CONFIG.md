@@ -76,10 +76,11 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
       { "label": "typecheck", "command": "npx tsc --noEmit in every touched package" },
       { "label": "tests",     "command": "npm test — the full suite" }
     ],
-    "testing": {                                // the three validation channels (empty string ⇒ skip that channel)
+    "testing": {                                // the validation channels (empty string ⇒ skip that channel)
       "api":      "How to author + run API/integration tests: location, runner command, what to assert (responses, error cases).",
       "database": "How to assert resulting DB state in the same test: which tables/rows/audit logs, soft-delete semantics, no-drift checks.",
-      "ui":       ""                            // real-browser Playwright-MCP UI instructions (which page/flow to drive + screenshot); empty = project has no UI tier
+      "ui":       "",                           // real-browser Playwright-MCP UI instructions (which page/flow to drive + screenshot); empty = project has no UI tier
+      "design":   ""                            // design/UX review of the UI screenshots: accessibility (WCAG AA) BLOCKS the merge, design-critique + ux-copy are advisory. String = extra brand/voice guidance; false = disable. Default (omit): on whenever the ui channel runs
     },
     "docs": [                                   // documentation the Docs phase keeps in sync (files/globs + how); omit = just keep readFirst accurate
       "docs/ARCHITECTURE.md — update when modules/data-flow change",
@@ -139,6 +140,13 @@ are committed to the repo as tracking commits (separate from task code), per `tr
   cases per channel, weighted toward cases that break the code — before writing any test; a happy-path-only suite is
   rejected by the clean-room critic. Phrase each channel's instructions to point at the negative/edge cases that matter
   here (auth/permission failures, constraint violations, soft-delete + re-read, cross-tenant isolation, idempotency).
+- **`project.testing.design` (the design/UX gate)** — when the **ui** channel runs (UI surface touched + servers up), the
+  engine also reviews the real-browser **screenshots** across three general product-design lenses: **accessibility**
+  (`design:accessibility-review`, WCAG AA) is a **BLOCKING** gate — a clear AA failure fails validation; **design-critique**
+  (hierarchy, state-legibility, empty/error states) + **ux-copy** (status labels, CTAs, empty states, errors) are
+  **ADVISORY** — surfaced in the PR body's "Design & UX review" section, never blocking the merge. The Design phase also
+  applies this lens up front, folding the UX intent + key strings into the acceptance criteria. Set `testing.design` to a
+  string for project brand/voice guidance, or `false` to disable; omit to default-on whenever `ui` runs.
 - **`project.docs`** — drives the engine's Docs phase: after validation is green it updates these docs so they match the
   change; the edits are part of the reviewed/merged diff. Omit to just keep the `readFirst` docs accurate.
 - **`project.invariants`** — the highest-leverage field. These feed (a) the test-author prompt (tests must assert them)

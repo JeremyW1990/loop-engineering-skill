@@ -39,6 +39,15 @@ const DESIGN_SCHEMA = {
       description: 'per UI surface (app/frontend) what changes; omit or use changes:"none" for untouched surfaces',
       items: { type: 'object', properties: { name: { type: 'string' }, changes: { type: 'string' } }, required: ['name', 'changes'] },
     },
+    ux: {
+      type: 'object',
+      description: 'UX/flow design intent — fill ONLY when a UI surface is touched (otherwise omit). The design-critique + ux-copy lens applied up front so UX is part of the contract, not an afterthought.',
+      properties: {
+        flow: { type: 'string', description: 'the intended user flow + state legibility: at each state can the user tell what just happened / whose turn / what to do next' },
+        states: { type: 'array', items: { type: 'string' }, description: 'the UI states this must handle: empty, loading, error, success, and any edge (e.g. dead/expired/zero) states' },
+        copy: { type: 'array', description: 'key strings decided up front (empty states, CTA + status labels, error messages)', items: { type: 'object', properties: { element: { type: 'string' }, text: { type: 'string' } }, required: ['element', 'text'] } },
+      },
+    },
     stages: {
       type: 'array', minItems: 1, maxItems: 8,
       items: {
@@ -162,6 +171,28 @@ const VALIDATION_SCHEMA = {
   type: 'object',
   properties: { command: { type: 'string' }, pass: { type: 'boolean' }, summary: { type: 'string' }, failures: { type: 'array', items: { type: 'string' } } },
   required: ['command', 'pass', 'summary'],
+}
+
+// design/UX review of the BUILT UI (run on the real-browser screenshots): accessibility is a BLOCKING gate,
+// design-critique + ux-copy are ADVISORY (surfaced in the PR body, never block the merge).
+const DESIGN_REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    screenshots: { type: 'array', items: { type: 'string' }, description: 'screenshot files actually reviewed' },
+    a11y: {
+      type: 'object',
+      description: 'objective accessibility (WCAG AA) — the ONLY blocking lens',
+      properties: {
+        pass: { type: 'boolean', description: 'false if any clear WCAG AA failure is visible (contrast, touch target, legibility, missing labels/focus)' },
+        violations: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, where: { type: 'string' }, detail: { type: 'string' }, severity: { type: 'string', enum: ['blocker', 'warning'] } }, required: ['rule', 'detail'] } },
+      },
+      required: ['pass'],
+    },
+    critique: { type: 'array', description: 'ADVISORY usability / hierarchy / consistency / state-legibility findings (design-critique lens)', items: { type: 'object', properties: { finding: { type: 'string' }, where: { type: 'string' }, severity: { type: 'string', enum: ['high', 'medium', 'low'] }, recommendation: { type: 'string' } }, required: ['finding'] } },
+    copy: { type: 'array', description: 'ADVISORY microcopy findings (ux-copy lens): empty states, status labels, CTAs, error messages', items: { type: 'object', properties: { element: { type: 'string' }, current: { type: 'string' }, recommended: { type: 'string' }, why: { type: 'string' } }, required: ['recommended'] } },
+    summary: { type: 'string' },
+  },
+  required: ['a11y', 'summary'],
 }
 
 const FIX_SCHEMA = {
@@ -303,6 +334,10 @@ const PROJECT = {
     api: str(Ptesting.api, str(Ptesting.unit, 'Author integration tests that exercise the affected API/endpoints with the repo’s test runner; assert success responses and error/edge cases.')),
     database: str(Ptesting.database, 'In the same backend test, assert the resulting database state directly: rows created/updated/soft-deleted, audit/log rows written, and no drift between layers.'),
     ui: str(Ptesting.ui, str(Ptesting.e2e, '')), // empty = no UI tier for this project
+    // design/UX review lens — runs on the real-browser screenshots when a UI surface is touched + servers up.
+    // accessibility is a BLOCKING gate; design-critique + ux-copy are ADVISORY (ride into the PR body).
+    // string = extra project design guidance (brand/voice); false = disable the lens. Default: on when UI runs.
+    design: Ptesting.design === false ? false : str(Ptesting.design, ''),
   },
   // documentation the engine should keep in sync (files/globs + how). Empty = just keep readFirst docs accurate.
   docs: arr(P.docs, []),
@@ -369,7 +404,7 @@ const recon = (
 // ───────────────────────── Phase 2 · Design (the "done" contract) ─────────────────────────
 phase('Design')
 const design = await agent(
-  `${BASE}\n\nRECON FINDINGS:\n${JSON.stringify(recon, null, 2)}\n\nSEED ACCEPTANCE CRITERIA (authoritative — you may REFINE wording + add concrete verify commands, but do NOT weaken or drop any; add more if the task needs them):\n${JSON.stringify(TASK.acceptance, null, 2)}\n\nProduce the DESIGN CONTRACT for this ONE task — the "what + why". Define explicitly:\n  - core: what changes in the core implementation (services, business logic, APIs) with file pointers.\n  - dataModel: schema/migration/persistence changes, or "none".\n  - surfaces: per UI surface what changes, or "none" for untouched surfaces. (Known UI surfaces of this project: ${PROJECT.uiSurfaces.length ? PROJECT.uiSurfaces.join(', ') : '(none declared)'}; scope hint from the plan: ${JSON.stringify(TASK.surfaces)}.)\n  - stages: ORDERED, build-green stages (each = a coherent chunk one engineer applies leaving typecheck-green; later depend on earlier), with key/title/focus/files/verify-commands.\n  - acceptanceCriteria: the final contract (refined seeds + any additions), each with a concrete verify command.\n  - testPlan: api (endpoint/integration assertions), database (state/persistence assertions), ui (${UI_ENABLED ? 'a UI surface is touched — include a Playwright plan' : 'only if a UI surface is touched; otherwise "none"'}).\n  - risks + outOfScope.\nThis contract is the pre-agreed definition of done; it will be checked by an INDEPENDENT verifier later. Do NOT write code yet.\n\nHUMAN-IN-THE-LOOP: if anything material is genuinely ambiguous — conflicting/contradictory requirements, an unclear acceptance criterion, or a product/scope decision only a human should make — set needsHuman=true and list precise openQuestions (each with why + concrete options) INSTEAD of guessing. The loop will PAUSE and ask a human before any code is written. Asking is encouraged, never a failure; reserve it for real blockers, not trivia resolvable from the docs.`,
+  `${BASE}\n\nRECON FINDINGS:\n${JSON.stringify(recon, null, 2)}\n\nSEED ACCEPTANCE CRITERIA (authoritative — you may REFINE wording + add concrete verify commands, but do NOT weaken or drop any; add more if the task needs them):\n${JSON.stringify(TASK.acceptance, null, 2)}\n\nProduce the DESIGN CONTRACT for this ONE task — the "what + why". Define explicitly:\n  - core: what changes in the core implementation (services, business logic, APIs) with file pointers.\n  - dataModel: schema/migration/persistence changes, or "none".\n  - surfaces: per UI surface what changes, or "none" for untouched surfaces. (Known UI surfaces of this project: ${PROJECT.uiSurfaces.length ? PROJECT.uiSurfaces.join(', ') : '(none declared)'}; scope hint from the plan: ${JSON.stringify(TASK.surfaces)}.)\n  - ux: ${UI_ENABLED ? 'a UI surface is touched — apply the **design:design-critique** + **design:ux-copy** lens to the PLANNED design: define flow (state legibility — at each state can the user tell what just happened / whose turn / what to do next), the states to handle (empty / loading / error / success / edge), and the key strings up front (empty states, CTA + status labels, error messages). Fold the important UX + copy expectations into acceptanceCriteria so they are verified, not optional.' : 'no UI surface touched — set to none / omit.'}\n  - stages: ORDERED, build-green stages (each = a coherent chunk one engineer applies leaving typecheck-green; later depend on earlier), with key/title/focus/files/verify-commands.\n  - acceptanceCriteria: the final contract (refined seeds + any additions), each with a concrete verify command.\n  - testPlan: api (endpoint/integration assertions), database (state/persistence assertions), ui (${UI_ENABLED ? 'a UI surface is touched — include a Playwright plan' : 'only if a UI surface is touched; otherwise "none"'}).\n  - risks + outOfScope.\nThis contract is the pre-agreed definition of done; it will be checked by an INDEPENDENT verifier later. Do NOT write code yet.\n\nHUMAN-IN-THE-LOOP: if anything material is genuinely ambiguous — conflicting/contradictory requirements, an unclear acceptance criterion, or a product/scope decision only a human should make — set needsHuman=true and list precise openQuestions (each with why + concrete options) INSTEAD of guessing. The loop will PAUSE and ask a human before any code is written. Asking is encouraged, never a failure; reserve it for real blockers, not trivia resolvable from the docs.`,
   { label: 'design', phase: 'Design', agentType: 'general-purpose', schema: DESIGN_SCHEMA },
 )
 log(`design: ${design.stages.length} stages — ${design.stages.map((s) => s.key).join(' → ')} · ${design.acceptanceCriteria.length} criteria`)
@@ -496,7 +531,18 @@ const staticChecks = (
     ),
   )
 ).filter(Boolean)
-const validationGreen = !!testReport.passed && staticChecks.every((v) => v && v.pass) && !codeBlocked
+// design/UX review (BLOCKING accessibility + ADVISORY critique/copy) — judges the BUILT UI from the real-browser screenshots
+const DESIGN_ENABLED = UI_ENABLED && SERVERS_UP && PROJECT.testing.design !== false
+const designReview = DESIGN_ENABLED
+  ? await agent(
+      `${BASE}\n\nDESIGN CONTRACT (the intended UX — judge the built UI against this):\n${JSON.stringify({ ux: design.ux || {}, surfaces: design.surfaces, acceptanceCriteria: design.acceptanceCriteria }, null, 2)}\n\nYou are the DESIGN / UX REVIEW gate. The Validate step drove the REAL UI with the Playwright MCP and saved screenshots under \`${REPO}/.playwright-mcp/\` (the test report referenced: ${JSON.stringify((testReport.files || []).filter((f) => /\\.png$/i.test(String(f))))} — if that list is empty, glob the most recent \`*.png\` under .playwright-mcp/ yourself). READ those screenshots (the Read tool renders PNGs) and judge the built UI across three GENERAL product-design lenses (this is project-agnostic, not specific to any one feature):\n  - **accessibility** (design:accessibility-review lens) — OBJECTIVE WCAG AA, the ONLY BLOCKING lens: text/background contrast, touch-target size (~44px), text legibility, visible focus + labelled controls. Set a11y.pass=false and list violations (severity 'blocker') ONLY for clear, screenshot-visible AA failures; otherwise a11y.pass=true.\n  - **critique** (design:design-critique lens) — ADVISORY: first impression, visual hierarchy (does the eye land on the primary action?), state legibility (can the user tell what just happened / whose turn / what to do next?), consistency, and the empty / loading / error / success / edge + dead-air states. Give concrete finding + where + recommendation.\n  - **copy** (design:ux-copy lens) — ADVISORY: status labels, button/CTA text, empty states, error messages — flag anything unclear, robotic, or ambiguous and give the recommended string (compare to the contract's ux.copy if present).\nADVISORY findings (critique + copy) DO NOT block the merge — they ride into the PR body for the human. ONLY accessibility blocks. Be specific and screenshot-grounded; never invent issues you cannot actually see. List the screenshots you reviewed.${PROJECT.testing.design && typeof PROJECT.testing.design === 'string' ? '\\n\\nPROJECT DESIGN GUIDANCE (brand/voice): ' + PROJECT.testing.design : ''}`,
+      { label: 'validate:design-review', phase: 'Validate', agentType: 'general-purpose', schema: DESIGN_REVIEW_SCHEMA },
+    )
+  : null
+if (designReview) log(`design-review: a11y ${designReview.a11y.pass === false ? 'FAIL (blocks merge)' : 'PASS'} · ${(designReview.critique || []).length} critique + ${(designReview.copy || []).length} copy note(s) [advisory]`)
+const designA11yOk = !designReview || designReview.a11y.pass !== false
+
+const validationGreen = !!testReport.passed && staticChecks.every((v) => v && v.pass) && !codeBlocked && designA11yOk
 
 // anti-tamper gate (Tier 1) — deterministically verify the coder did NOT weaken the verification surface to go green
 const TG = PROJECT.testGuard
@@ -524,7 +570,7 @@ const diffText = await agent(
   { label: 'capture:diff', phase: 'Docs', agentType: 'general-purpose' },
 )
 const prBody = await agent(
-  `${BASE}\n\nDESIGN CONTRACT:\n${JSON.stringify({ summary: design.summary, core: design.core, dataModel: design.dataModel, surfaces: design.surfaces, acceptanceCriteria: design.acceptanceCriteria }, null, 2)}\n\nVALIDATION: tests ${testReport.passed ? 'PASS' : 'FAIL'}; static checks ${staticChecks.map((v) => (v.pass ? 'pass' : 'FAIL')).join('/')}; docs ${docsReport.skipped ? 'n/a' : (docsReport.files || []).join(', ') || 'updated'}.\n\nWrite the PR body (GitHub markdown) for task ${TASK.id}: a "## Summary" of what changed (core/data model/surfaces), a "## Changes" bullet list, a "## Docs" line (files updated, or "none needed"), and a "## Acceptance criteria" checklist (one - [ ] line per criterion, checked only if validation supports it). Be factual and concise. Return ONLY the markdown body.`,
+  `${BASE}\n\nDESIGN CONTRACT:\n${JSON.stringify({ summary: design.summary, core: design.core, dataModel: design.dataModel, surfaces: design.surfaces, acceptanceCriteria: design.acceptanceCriteria }, null, 2)}\n\nVALIDATION: tests ${testReport.passed ? 'PASS' : 'FAIL'}; static checks ${staticChecks.map((v) => (v.pass ? 'pass' : 'FAIL')).join('/')}; docs ${docsReport.skipped ? 'n/a' : (docsReport.files || []).join(', ') || 'updated'}.${designReview ? '\n\nDESIGN/UX REVIEW (accessibility is a blocking gate; critique + copy are ADVISORY — surface them for the human):\n' + JSON.stringify({ a11yPass: designReview.a11y.pass !== false, a11yViolations: designReview.a11y.violations || [], critique: designReview.critique || [], copy: designReview.copy || [] }, null, 2) : ''}\n\nWrite the PR body (GitHub markdown) for task ${TASK.id}: a "## Summary" of what changed (core/data model/surfaces), a "## Changes" bullet list, a "## Docs" line (files updated, or "none needed"), a "## Acceptance criteria" checklist (one - [ ] line per criterion, checked only if validation supports it)${designReview ? ', and a "## Design & UX review" section — the accessibility result (list any blocking violations) followed by the advisory critique + copy suggestions as a bullet list' : ''}. Be factual and concise. Return ONLY the markdown body.`,
   { label: 'capture:prbody', phase: 'Docs', agentType: 'general-purpose' },
 )
 
@@ -603,6 +649,9 @@ return {
   openQuestions: testDesign.openQuestions || [],
   fixRounds: round,
   staticChecks: staticChecks.map((v) => ({ command: v.command, pass: v.pass, summary: v.summary })),
+  designReview: designReview
+    ? { a11yPass: designReview.a11y.pass !== false, a11yViolations: designReview.a11y.violations || [], critique: designReview.critique || [], copy: designReview.copy || [], screenshots: designReview.screenshots || [], summary: designReview.summary }
+    : null,
   design: { summary: design.summary, core: design.core, dataModel: design.dataModel, surfaces: design.surfaces, stages: design.stages.map((s) => s.key), acceptanceCriteria: design.acceptanceCriteria },
   techSpec: { summary: techSpec.summary, fileChanges: techSpec.fileChanges, apiContracts: techSpec.apiContracts || [], dataModel: techSpec.dataModel || 'none', sequencing: techSpec.sequencing, edgeCases: techSpec.edgeCases || [] },
   docs: { updated: !!docsReport.updated, skipped: !!docsReport.skipped, files: docsReport.files || [], summary: docsReport.summary },

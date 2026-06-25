@@ -1,6 +1,6 @@
 ---
 name: loop-engineering
-description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) implementation_plan.html + implementation_status.html, then autonomously drains the sprint: per task design → technical spec → code → validate (UI via a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI / API / database, loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
+description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) implementation_plan.html + implementation_status.html, then autonomously drains the sprint: per task design (a UX lens — design-critique + ux-copy — runs on any UI work) → technical spec → code → validate (API / database + a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI, then a design/UX review of those shots — accessibility gates the merge, critique + copy are advisory; loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
 argument-hint: "<sprintFolder> [sprint description…]   e.g. /loop-engineering docs/sprint1 Build the waitlist admin review flow   ·   /loop-engineering docs/sprint1   (resume)   ·   add `dryRun` to stop at the PR"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Workflow, AskUserQuestion
 ---
@@ -135,10 +135,10 @@ Workflow({ scriptPath: "<skill-dir>/task-flow.mjs", args: {
 ```
 Resolve `<skill-dir>` to where this skill is installed (typically `~/.claude/skills/loop-engineering/`, `~` expanded).
 It runs in the background; wait for the completion notification, then read its returned report. The engine performs:
-**Recon** → **Design** (the done-contract) → **Technical Spec** (file-level engineering plan) → **Code** (drift-plan →
+**Recon** → **Design** (the done-contract — plus a `design:design-critique` + `design:ux-copy` UX lens on any UI surface: flow + state-legibility + the key strings folded into the acceptance criteria) → **Technical Spec** (file-level engineering plan) → **Code** (drift-plan →
 clean-cutover implement, each stage build-green) → **Validate** (DESIGNS a test matrix first — several happy, negative,
 AND edge cases per channel, weighted toward cases that break the code — then authors + runs them across API/database
-and, when a UI surface is touched + servers up, a real-browser Playwright-MCP UI drive (navigate → click/type → screenshot the live UI); loops with Code until green or `maxFixRounds`; then the
+and, when a UI surface is touched + servers up, a real-browser Playwright-MCP UI drive (navigate → click/type → screenshot the live UI), then a **design/UX review** of those screenshots (`design:accessibility-review` BLOCKS on WCAG AA; `design:design-critique` + `design:ux-copy` are ADVISORY, surfaced in the PR body); loops with Code until green or `maxFixRounds`; then the
 read-only static gate, then a **deterministic anti-tamper check** that the coder didn't weaken tests/CI to go green) →
 **Docs** (updates the affected project documentation, part of the diff) → clean-room **Verify** (independent agents that
 see only the contract + diff + PR body; the completeness critic rejects a happy-path-only suite; a **held-out** agent
@@ -157,13 +157,13 @@ design), surface them before you decide to merge — don't bury them.
 ### Stage 4b · Decision gate (the review gate)
 - **If `report.needsHuman`** (the engine paused before coding): handled by the Human gate above — ask, then re-invoke
   with `clarifications`; do not treat it as blocked. You only reach the rest of this gate with a completed report.
-- **If `report.blocked` or `report.verified === false`** (validation red, a criterion unmet, or
+- **If `report.blocked` or `report.verified === false`** (validation red, a criterion unmet, a failed **accessibility gate** (`report.designReview.a11yViolations`), or
   `testGamingSuspected`): do **NOT** merge. Set status `status:"blocked"` + a `currentCycle.note` with the failed
   criteria. **Ask the human** (AskUserQuestion): (a) re-run the engine with extra guidance you provide; (b) hand it to
   them; (c) skip; (d) stop.
 - **If `report.openQuestions` is non-empty** (even on an otherwise-green task): surface them to the human before
   merging and let them decide (proceed / adjust / stop) — never silently merge over an open question.
-- **Only if `report.verified === true`** (and any open questions resolved) proceed to the risk gate.
+- **Only if `report.verified === true`** (and any open questions resolved) proceed to the risk gate. (The design review's ADVISORY `report.designReview.critique`/`copy` notes never block — they already ride in the PR body; only a failed accessibility gate blocks, surfacing as `verified===false` above.)
 
 ### Stage 4c · Risk gate (high-risk changes pause before auto-merge)
 Even when `report.verified === true`, classify the staged diff's **risk tier** before merging. A change is **high-risk**
@@ -211,7 +211,7 @@ semantically break a consumer the tests don't cover. This gate is the most impor
 
 ## Hard guardrails (always)
 
-- **Auto-merge requires ALL of:** `report.verified === true` (validation green + every criterion met by the clean-room
+- **Auto-merge requires ALL of:** `report.verified === true` (validation green — incl. the **accessibility design-gate** — + every criterion met by the clean-room
   verifier + no test-gaming + anti-tamper clean + the held-out test passed), CI green (when required), **and a low-risk
   diff** (Stage 4c). Anything less → pause, never merge.
 - **Risk-gate auto-merge:** schema/migration/RLS, auth, money, infra, `.github/workflows/`, the loop's own
