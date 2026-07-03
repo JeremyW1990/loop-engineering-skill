@@ -1,9 +1,9 @@
 # `.claude/loop-engineering.json` — per-project config reference
 
 One file at the **repo root** specializes the loop-engineering skill for a project. It holds project-level *facts*
-(commands, infra, rules, test channels, docs) — **not** the plan. The plan + tracking live in a **sprint folder** you
-pass on the command line (`/loop-engineering docs/sprint1 …`), as `implementation_plan.html` +
-`implementation_status.html` (see "The sprint folder" below).
+(commands, infra, rules, test channels, docs) — **not** the tickets. The tickets + tracking live in a **sprint folder** you
+pass on the command line (`/loop-engineering docs/sprint1 …`), as one `<slug>_ticket.html` + `<slug>_status.html`
+pair per ticket (see "The sprint folder" below).
 
 The loop master (SKILL.md) consumes the top-level sections; the `project` object is passed **verbatim** to
 `task-flow.mjs` as `args.project`.
@@ -15,7 +15,7 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
 {
   // ── consumed by the loop master (SKILL.md) ──────────────────────────────
   "tracking": {
-    "commit": true                              // commit plan/status page updates directly on the base branch (only if unprotected)
+    "commit": true                              // commit ticket/status page updates directly on the base branch (only if unprotected)
   },
   "git": {
     "baseBranch": "main",                      // PRs target this; the loop syncs it between tasks
@@ -101,22 +101,23 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
 
 ## The sprint folder (passed on the command line, NOT in this config)
 
-`/loop-engineering <sprintFolder> [description…]` operates on a folder holding two pages:
+`/loop-engineering <sprintFolder> [description…]` operates on a folder holding **one pair of pages per ticket** (many tickets per sprint):
 
-- **`implementation_plan.html`** — the sprint's task list + accumulated design/spec. It **renders itself** from the JSON
-  in `<script id="plan-data" type="application/json">`:
-  `{ sprint, title, description, generatedFrom, tasks: [ {id,title,goal,surfaces[],acceptance[],outOfScope[],dependsOn[],detailed,record} ] }`.
-  When a task merges, the loop fills that task's `record` (`{pr,mergedAt,design,techSpec}`) and the page renders its
+- **`<slug>_ticket.html`** — a single ticket's spec + accumulated design/spec. It **renders itself** from the JSON
+  in `<script id="ticket-data" type="application/json">`:
+  `{ sprint, id, slug, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed, generatedFrom, record }`.
+  When the ticket merges, the loop fills its `record` (`{pr,mergedAt,design,techSpec}`) and the page renders its
   design + technical spec underneath.
-- **`implementation_status.html`** — live per-task status. It renders itself from the JSON in
+- **`<slug>_status.html`** — that ticket's live status. It renders itself from the JSON in
   `<script id="status-data" type="application/json">`:
-  `{ updated, currentCycle, tasks: { <id>: { status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note } }, log: [ {at,task,event} ], ledger: [ {at, task, entries:[{rootCauseClass, fix}]} ] }`.
-  The loop edits ONLY these `<script>` JSON blocks; the markup repaints from them. The **`ledger`** is the cross-task
-  failure memory (Tier 2): each task appends its defects+fixes, and the loop feeds the recent entries into the next
-  task so the same class of bug isn't repeated.
+  `{ sprint, id, slug, title, updated, status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note, log: [ {at,event} ], ledger: [ {at, rootCauseClass, fix} ] }`.
+  The loop edits ONLY these `<script>` JSON blocks; the markup repaints from them. The **`ledger`** is per-ticket; the
+  loop **aggregates** ledgers across all tickets (the cross-ticket failure memory, Tier 2) and feeds the recent entries
+  into the next ticket so the same class of bug isn't repeated.
 
-If the folder/files are missing, the loop **generates** both from the description (templates live in `templates/` next
-to this skill) and runs the sprint autonomously. If they exist, it **resumes** from the next ready task. The HTML pages
+If the folder is empty/missing, the loop **generates** a `<slug>_ticket.html` + `<slug>_status.html` pair per ticket from
+the description (templates live in `templates/` next to this skill) and runs the sprint autonomously. If ticket pages
+exist, it **resumes** from the next ready ticket. The HTML pages
 are committed to the repo as tracking commits (separate from task code), per `tracking.commit`.
 
 ## Field notes
@@ -153,7 +154,7 @@ are committed to the repo as tracking commits (separate from task code), per `tr
   and (b) the clean-room completeness critic (flags any mutation that violates them or leaves them untested). Write them
   as checkable statements about data/behavior, not vague principles.
 - **`project.staticChecks`** — keep them read-only (`no --fix`); the engine treats any failure as validation-red.
-- **`tracking.commit`** — set false when the base branch is protected; the plan/status page updates then ride on the
+- **`tracking.commit`** — set false when the base branch is protected; the ticket/status page updates then ride on the
   task branch instead of the base branch.
 - **`merge.highRiskPaths` / `highRiskPatterns` (Tier 1)** — the auto-merge risk gate. A task whose diff touches a
   high-risk path/pattern (schema/migrations/RLS, auth, money, infra, `.github/workflows/`, the loop's own config) — or

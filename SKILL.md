@@ -1,12 +1,12 @@
 ---
 name: loop-engineering
-description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) implementation_plan.html + implementation_status.html, then autonomously drains the sprint: per task design (a UX lens — design-critique + ux-copy — runs on any UI work) → technical spec → code → validate (API / database + a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI, then a design/UX review of those shots — accessibility gates the merge, critique + copy are advisory; loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
+description: Project-agnostic sprint loop-engineering cycle — point it at a sprint folder + a description; it generates (or resumes) one <slug>_ticket.html + <slug>_status.html pair per ticket (many per sprint), then autonomously drains the sprint: per task design (a UX lens — design-critique + ux-copy — runs on any UI work) → technical spec → code → validate (API / database + a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI, then a design/UX review of those shots — accessibility gates the merge, critique + copy are advisory; loop-until-green) → docs → clean-room review → auto-merge after green, update the status page, next task. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
 argument-hint: "<sprintFolder> [sprint description…]   e.g. /loop-engineering docs/sprint1 Build the waitlist admin review flow   ·   /loop-engineering docs/sprint1   (resume)   ·   add `dryRun` to stop at the PR"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Workflow, AskUserQuestion
 ---
 
 You are running the **loop-engineering cycle** — a self-driving sprint loop. You are pointed at a **sprint folder**; you
-generate (or resume) the sprint's `implementation_plan.html` + `implementation_status.html`, then repeatedly pull the
+generate (or resume) the sprint's tickets — one `<slug>_ticket.html` + `<slug>_status.html` pair each — then repeatedly pull the
 next ready task, build it (design → technical spec → code → validate → docs), prove it, and — after an independent
 clean-room review + green CI — auto-merge it, update the status page, and move to the next task until the sprint is
 drained.
@@ -18,7 +18,7 @@ decision that is the human's to make, STOP and ask via AskUserQuestion rather th
 a confident wrong guess.
 
 The loop is grounded in verified best practice for long-running agent loops: an explicit "done" contract before any
-code; an *independent* evaluator that never sees the coder's reasoning; external state (git + the two HTML pages)
+code; an *independent* evaluator that never sees the coder's reasoning; external state (git + the per-ticket HTML pages)
 carried across context resets (each task is a fresh Workflow run); loop-until-green with iteration caps; and hard
 guardrails against false-completion and test-gaming.
 
@@ -27,7 +27,7 @@ guardrails against false-completion and test-gaming.
 `/loop-engineering <sprintFolder> [sprint description…]`
 
 - **`sprintFolder`** (required, first token) — a path (relative to the repo root, or absolute) for this sprint, e.g.
-  `docs/sprint1`. It holds exactly two files: `implementation_plan.html` and `implementation_status.html`.
+  `docs/sprint1`. It holds one `<slug>_ticket.html` + `<slug>_status.html` pair per ticket (many tickets per sprint).
 - **sprint description** (the rest of the line) — free text describing what the sprint should deliver. **Required only
   when bootstrapping** a new sprint folder; ignored when resuming an existing one (the files are the source of truth).
 - **`dryRun`** (flag, anywhere in the args) — open each PR and **stop** (no merge). Recommended for the first run on a
@@ -52,34 +52,29 @@ a complete worked example.
   3. **Show the draft to the human and confirm via AskUserQuestion before writing.** Bad commands or a wrong base
      branch poison every later cycle. Write the file only after confirmation.
 
-## Step 1 · Resolve the sprint folder + plan/status pages (once per invocation)
+## Step 1 · Resolve the sprint's tickets (once per invocation)
 
-Compute `PLAN = <sprintFolder>/implementation_plan.html` and `STATUS = <sprintFolder>/implementation_status.html`.
+A sprint folder holds **one pair of pages per ticket** — `<slug>_ticket.html` (the spec) + `<slug>_status.html` (the live status) — **many tickets per sprint**. There is **no** monolithic plan/status page. `slug` is a short kebab-case basename; `id` is the stable ticket id that `dependsOn` references.
 
-- **Both files exist → RESUME.** Read them. Parse the embedded JSON manifests (below). The plan's task list + the
-  status' per-task state are the source of truth; the sprint description argument (if any) is ignored. Continue from the
-  next ready task.
-- **Folder or files missing → BOOTSTRAP, then run autonomously (no approval gate):**
+- **Folder has `*_ticket.html` files → RESUME.** `ls <sprintFolder>/*_ticket.html <sprintFolder>/*_status.html`; read each, parse its embedded JSON (below), and **pair by `slug`** into an in-memory ticket list. The tickets' specs + per-ticket status are the source of truth; the sprint description argument (if any) is ignored. Continue from the next ready ticket.
+- **Folder empty / missing → BOOTSTRAP, then run autonomously (no approval gate):**
   1. Create the folder (`mkdir -p <sprintFolder>`).
-  2. **Generate the plan.** Spawn a planning agent (Task tool / `general-purpose`) that reads the project's `readFirst`
-     docs + the repo and, from the **sprint description**, produces an ordered task breakdown. Each task:
-     `{ id, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed:true }`. Keep tasks small and
-     independently shippable; set `dependsOn` to encode order; give stable ids (`S1-T1`, `S1-T2`, …).
-  3. **Write `implementation_plan.html`** by copying `templates/implementation_plan.template.html` and replacing its
-     `<script id="plan-data" type="application/json">…</script>` body with the manifest
-     `{ sprint, title, description, generatedFrom, tasks:[…] }` (each task `record:null` for now). The template
-     **self-renders** the table + per-task detail from that JSON — do NOT write any HTML by hand.
-  4. **Write `implementation_status.html`** by copying `templates/implementation_status.template.html` and replacing its
-     `<script id="status-data" type="application/json">…</script>` body with
-     `{ updated, currentCycle:null, tasks:{ <id>:{status:"todo"} }, log:[] }`. It self-renders too.
-  5. Commit both on the base branch (`chore(loop): bootstrap sprint <folder>`) per the tracking-commit rule, then begin
-     the cycle immediately on the first ready task. **Do not pause for plan approval** — this loop runs start-to-finish.
+  2. **Break the sprint into tickets.** Spawn a planning agent (Task tool / `general-purpose`) that reads the project's `readFirst`
+     docs + the repo and, from the **sprint description**, produces an ordered ticket breakdown. Each ticket:
+     `{ id, slug, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed:true }`. Keep tickets small and
+     independently shippable; set `dependsOn` (by id) to encode order; give stable ids (`S1-T1`, `S1-T2`, …) and a unique kebab-case `slug` each (e.g. `split-other-income`).
+  3. **For EACH ticket, write its pair** (both **self-render** from the JSON — do NOT write any HTML by hand):
+     - `<sprintFolder>/<slug>_ticket.html` — copy `templates/ticket.template.html`, replacing its `<script id="ticket-data" type="application/json">…</script>` body with `{ sprint, id, slug, title, goal, surfaces, acceptance, outOfScope, dependsOn, detailed, generatedFrom, record:null }`.
+     - `<sprintFolder>/<slug>_status.html` — copy `templates/status.template.html`, replacing its `<script id="status-data" type="application/json">…</script>` body with `{ sprint, id, slug, title, updated, status:"todo", phase:null, branch:null, pr:null, mergedAt:null, note:null, log:[], ledger:[] }`.
+  4. Commit all pairs on the base branch (`chore(loop): bootstrap sprint <folder>`) per the tracking-commit rule, then begin
+     the cycle immediately on the first ready ticket. **Do not pause for plan approval** — this loop runs start-to-finish.
 
-**Manifest contract (how to read/write the two pages).** Each page **renders itself from a single JSON `<script>`
+**Manifest contract (how to read/write each page).** Every page **renders itself from a single JSON `<script>`
 block** — read it by parsing that script's text, and when updating, **edit ONLY that JSON block**; the page repaints
-from it, so there is no hand-written HTML to keep in sync.
-- `PLAN` → `<script id="plan-data" type="application/json">` = `{ sprint, title, description, generatedFrom, tasks: [ {id,title,goal,surfaces,acceptance[],outOfScope[],dependsOn[],detailed,record} ] }` (`record` stays null until the task merges).
-- `STATUS` → `<script id="status-data" type="application/json">` = `{ updated, currentCycle, tasks: { <id>: { status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note } }, log: [ {at,task,event} ] }`.
+from it, so there is no hand-written HTML to keep in sync. Pair a ticket's two files by matching `slug`/`id`.
+- `<slug>_ticket.html` → `<script id="ticket-data" …>` = `{ sprint, id, slug, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[], detailed, generatedFrom, record }` (`record` stays null until the ticket merges, then holds `{ pr, mergedAt, design, techSpec }`).
+- `<slug>_status.html` → `<script id="status-data" …>` = `{ sprint, id, slug, title, updated, status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note, log:[ {at,event} ], ledger:[ {at,rootCauseClass,fix} ] }`.
+- **The ledger is per-ticket.** For the cross-ticket failure memory, the loop **aggregates** `ledger[]` from ALL `*_status.html` pages: tag each entry with its ticket `id`, sort by `at`, keep the recent ~50, and feed that forward as the next ticket's `failureLedger`.
 
 ---
 
@@ -94,16 +89,16 @@ from it, so there is no hand-written HTML to keep in sync.
    Playwright-MCP UI channel to *run* (it drives a live browser — clicks + screenshots — against those servers); if they
    won't come up, continue with `serversUp:false` — the engine then *authors* the headless regression spec but defers the
    live real-browser drive, and you note that in the PR. **Never smoke-test against shared/staging/prod environments.**
-4. Re-read `PLAN` + `STATUS`. Build the task list with live status. **Treat git history + actual test results as ground
-   truth** — if the status page disagrees with what's actually merged on the base branch, trust git and correct the page
-   (a crashed prior run can leave the page stale).
+4. Re-read all `<slug>_ticket.html` + `<slug>_status.html` pairs. Build the ticket list with live status. **Treat git
+   history + actual test results as ground truth** — if a status page disagrees with what's actually merged on the base
+   branch, trust git and correct that page (a crashed prior run can leave one stale).
 
 ---
 
 ## The cycle (repeat until the sprint is drained / `max` reached)
 
 ### Stage 1 · Pick the next task + open the cycle
-- Choose the next task where: status `=== "todo"`, **every** `dependsOn` is `done`, and plan `detailed === true`
+- Choose the next ticket where: status `=== "todo"`, **every** `dependsOn` is `done`, and the ticket's `detailed === true`
   (treat a missing `detailed` as `true` only if the task has non-empty `acceptance[]`).
 - Honor `taskId=` if given (but still refuse if its deps aren't merged — say so and stop).
 - **If the next-by-order ready task is a scaffold (`detailed:false` or no acceptance criteria):** STOP and **ask the
@@ -112,24 +107,25 @@ from it, so there is no hand-written HTML to keep in sync.
 - **If no task is ready:** STOP — report the sprint state (done count, what's blocked on what).
 - Create the branch: `git switch -c <git.branchPrefix><id-lowercased>`.
 - **Baseline smoke test:** if `preflight.smokeTest` is configured, run it now on the fresh branch. If it fails, the base
-  branch is already broken — STOP and ask the human; never build a new task on a red base. Also read the recent
-  `status-data.ledger` entries to pass the engine as prior-task learnings.
-- Update `STATUS` (edit only the `status-data` JSON): set this task `status:"in_progress"`, set `currentCycle`
-  `{task,title,branch,phase:"design",startedAt:<today>}`, bump `updated`. Commit on the base branch
+  branch is already broken — STOP and ask the human; never build a new task on a red base. Also **aggregate the recent
+  `ledger[]` entries across all `*_status.html` pages**: tag each entry with its ticket `id`, sort by `at`, keep the
+  recent ~50, and pass them to the engine as prior-ticket learnings.
+- Update **this ticket's `<slug>_status.html`** (edit only its `status-data` JSON): set `status:"in_progress"`,
+  `phase:"design"`, `branch:<branch>`, bump `updated`. Commit on the base branch
   (`chore(loop): start <ID>`) per the tracking-commit rule (only if `git.baseBranch` is unprotected and
-  `tracking.commit` is true; otherwise keep tracking edits on the task branch).
+  `tracking.commit` is true; otherwise keep tracking edits on the ticket branch).
 
 ### Stages 2–7 · Build via the engine (design → tech spec → code → validate → docs → verify)
 Invoke the per-task Workflow — this is where sub-agents are dynamically spawned:
 ```
 Workflow({ scriptPath: "<skill-dir>/task-flow.mjs", args: {
-  task: <the full task object from the plan: id, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[]>,
+  task: <the full ticket object (from its `<slug>_ticket.html`): id, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[]>,
   branch: "<git.branchPrefix><id>",
   repo: "<absolute repo path>",
   serversUp: <bool from preflight>,
   maxFixRounds: <engine.maxFixRounds, default 3>,
   maxTaskTokens: <engine.maxTaskTokens, optional — per-task output-token ceiling; the engine PAUSES to escalate rather than grind past it>,
-  failureLedger: <the recent `status-data.ledger` entries — prior tasks' defects+fixes, fed forward so the engine avoids repeats>,
+  failureLedger: <the recent ~50 `ledger[]` entries aggregated across all `*_status.html` pages, each tagged with its ticket id and sorted by `at` — prior tickets' defects+fixes, fed forward so the engine avoids repeats>,
   project: <the config's `project` object, verbatim — incl. testing.{api,database,ui}, docs[], testGuard, …>
 }})
 ```
@@ -158,7 +154,7 @@ design), surface them before you decide to merge — don't bury them.
 - **If `report.needsHuman`** (the engine paused before coding): handled by the Human gate above — ask, then re-invoke
   with `clarifications`; do not treat it as blocked. You only reach the rest of this gate with a completed report.
 - **If `report.blocked` or `report.verified === false`** (validation red, a criterion unmet, a failed **accessibility gate** (`report.designReview.a11yViolations`), or
-  `testGamingSuspected`): do **NOT** merge. Set status `status:"blocked"` + a `currentCycle.note` with the failed
+  `testGamingSuspected`): do **NOT** merge. Set this ticket's `status:"blocked"` + a `note` with the failed
   criteria. **Ask the human** (AskUserQuestion): (a) re-run the engine with extra guidance you provide; (b) hand it to
   them; (c) skip; (d) stop.
 - **If `report.openQuestions` is non-empty** (even on an otherwise-green task): surface them to the human before
@@ -192,20 +188,20 @@ semantically break a consumer the tests don't cover. This gate is the most impor
    - **`dryRun`:** skip steps 3–4 — leave the PR open and report `#n` for the human to merge.
 
 ### Stage 5b · Persist the record + update status (close the cycle)
-- **`PLAN`:** in the `plan-data` JSON, set this task's `record` to
-  `{ pr:<n>, mergedAt:<today>, design:<report.design>, techSpec:<report.techSpec> }` so the plan becomes the sprint's
-  living design+spec record (the page renders it under that task). Leave every task's id/title/goal/acceptance/deps
-  unchanged — the task list is stable.
-- **`STATUS`:** in the `status-data` JSON, set this task `status:"done"`, `pr:<n>`, `mergedAt:<today>`; append a `log`
-  entry (`{at, task:<ID>, event:"merged in #<n> — <one-line>"}`); **append `report.ledgerEntries` to `ledger`** (keep the
-  last ~50) so the next task learns from this one's defects; set `currentCycle:null`; bump `updated`.
+Both edits target **this ticket's own pair** (`<slug>_ticket.html` + `<slug>_status.html`); leave every OTHER ticket's files untouched.
+- **`<slug>_ticket.html`:** in its `ticket-data` JSON, set `record` to
+  `{ pr:<n>, mergedAt:<today>, design:<report.design>, techSpec:<report.techSpec> }` so the ticket page becomes its
+  living design+spec record. Leave `id/slug/title/goal/acceptance/dependsOn` unchanged — the spec is stable.
+- **`<slug>_status.html`:** in its `status-data` JSON, set `status:"done"`, `pr:<n>`, `mergedAt:<today>`, `phase:null`; append a
+  `log` entry (`{at, event:"merged in #<n> — <one-line>"}`); **append `report.ledgerEntries` to this ticket's `ledger`** so
+  the next ticket learns from this one's defects; bump `updated`.
 - Commit (`chore(loop): <ID> merged (#<n>) + sprint docs`) and push, per the tracking-commit rule.
-- (On a **blocked** task — Stage 4b — also append `report.ledgerEntries` to `ledger` before pausing; the learnings matter
-  whether or not it merged.)
+- (On a **blocked** ticket — Stage 4b — also append `report.ledgerEntries` to its `ledger` before pausing; the learnings
+  matter whether or not it merged.)
 
 ### Stage 6 · Loop
 - Decrement the task budget. If more ready tasks remain and `max` allows, go to **Stage 1** for the next one.
-  Otherwise STOP with a summary (what merged, what's next, any pauses), and point at `STATUS` for the live picture.
+  Otherwise STOP with a summary (what merged, what's next, any pauses), and point at the sprint folder's `*_status.html` pages for the live picture.
 
 ---
 
@@ -220,7 +216,7 @@ semantically break a consumer the tests don't cover. This gate is the most impor
 - **Pause-and-ask** on: a scaffold/undetailed task, an unmet criterion, a blocker, CI red after the fix cap, a dirty
   tree, a missing/ambiguous config value, an engine `needsHuman`/`openQuestions`, or anything needing a destructive git
   op. **Asking is always allowed and encouraged at ANY step — prefer a question over a guess on genuine ambiguity; it is
-  never counted as a failure.** Use AskUserQuestion; surface the concrete evidence. (Bootstrapping a *new sprint plan*
+  never counted as a failure.** Use AskUserQuestion; surface the concrete evidence. (Bootstrapping a *new sprint ticket set*
   does NOT pause — it runs autonomously per the chosen mode.)
 - **Never happy-path-only:** validation must design + run several happy, negative, AND edge cases per channel; the
   clean-room critic fails a suite that lacks real negative/edge coverage (`coverageOk=false`).
@@ -231,9 +227,9 @@ semantically break a consumer the tests don't cover. This gate is the most impor
 - **Caps:** `engine.maxFixRounds` (default 3) inside the engine; `ci.maxFixAttempts` (default 2); optional
   `engine.maxTaskTokens` per-task ceiling. On any cap exhaustion **escalate to the human — do NOT auto-raise the cap**
   (more grind raises hack-rate, not correctness). Default = drain the whole sprint unless `max=<N>`.
-- One commit per logical change; keep tracking/plan commits separate from task code.
+- One commit per logical change; keep tracking-doc commits separate from task code.
 
 ## Stopping conditions
 
 Sprint drained · next ready task is a scaffold · a task is blocked/unverified · CI won't go green · `max` reached · the
-human says stop. Always end with a short status and point at `implementation_status.html` for the live picture.
+human says stop. Always end with a short status and point at the sprint folder's `*_status.html` pages for the live picture.

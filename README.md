@@ -24,9 +24,9 @@ Then, in Claude Code:
 /loop-engineering docs/sprint1 Build the waitlist admin review flow
 ```
 
-- **No folder yet?** It generates `implementation_plan.html` + `implementation_status.html` from your description and
+- **No folder yet?** It generates one `<slug>_ticket.html` + `<slug>_status.html` pair per ticket from your description and
   runs the sprint autonomously.
-- **Folder exists?** It reads them and resumes from the next ready task.
+- **Folder exists?** It reads the ticket pages and resumes from the next ready ticket.
 
 ## Layout
 
@@ -35,7 +35,7 @@ Then, in Claude Code:
 | `SKILL.md` | The master loop — sprint folder → autonomous, risk-gated auto-merge. |
 | `task-flow.mjs` | The per-task engine (a Claude Code Workflow): recon → design → spec → code → validate → docs → clean-room verify. |
 | `CONFIG.md` | The per-repo config schema (`.claude/loop-engineering.json`). |
-| `templates/` | Self-rendering plan + status HTML (an embedded JSON manifest drives the page). |
+| `templates/` | Self-rendering per-ticket ticket + status HTML templates. |
 | `examples/example.json` | A complete worked config. |
 
 ## What makes it safe to run unattended

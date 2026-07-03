@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!--
+  loop-engineering · TICKET STATUS (one ticket, live tracking)
+  ────────────────────────────────────────────────────────────────────────
+  ONE ticket per file: <sprintFolder>/<slug>_status.html — pairs with <slug>_ticket.html.
+  A sprint folder holds MANY such pairs (one per ticket), not a single plan+status.
+  This page renders itself from the JSON in <script id="status-data">.
+  The loop edits ONLY that JSON block — never the markup below it.
+
+  status-data shape:
+  {
+    "sprint":   "docs/sprint_N",
+    "id":       "S1-T1",                          // matches the paired <slug>_ticket.html id
+    "slug":     "split-other-income",
+    "title":    "short ticket title",
+    "updated":  "YYYY-MM-DD",
+    "status":   "todo",                           // todo | in_progress | blocked | done
+    "phase":    null,                             // design | tech-spec | code | validate | docs | verify
+    "branch":   null,
+    "pr":       null,
+    "mergedAt": null,
+    "note":     null,                             // e.g. the failed criteria while blocked
+    "log":      [ { "at": "YYYY-MM-DD", "event": "merged in #123 — one-line" } ],
+    "ledger":   [ { "at": "YYYY-MM-DD", "rootCauseClass": "unmet-criterion", "fix": "…" } ]
+    //  ^ THIS ticket's defects+fixes. The loop aggregates ledgers across ALL tickets' status pages
+    //    and feeds the recent ones forward as the next ticket's failureLedger.
+  }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ticket status</title>
+<script id="status-data" type="application/json">
+{
+  "sprint": "",
+  "id": "",
+  "slug": "",
+  "title": "",
+  "updated": "",
+  "status": "todo",
+  "phase": null,
+  "branch": null,
+  "pr": null,
+  "mergedAt": null,
+  "note": null,
+  "log": [],
+  "ledger": []
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2rem; max-width: 900px; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 1.6rem 0 .6rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  .muted { opacity: .65; }
+  .chip { display: inline-block; border-radius: 999px; padding: .2rem .8rem; font-size: .9rem; font-weight: 600; margin: .5rem 0; }
+  .chip.todo { background: #8883; }
+  .chip.in_progress { background: #2f6feb33; color: #2f6feb; }
+  .chip.blocked { background: #d1242f33; color: #d1242f; }
+  .chip.done { background: #1a7f3733; color: #1a7f37; }
+  .field { margin: .4rem 0; }
+  .field b { opacity: .75; font-weight: 600; }
+  .banner { border-left: 4px solid #d1242f; background: #d1242f14; border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
+  .empty { opacity: .6; font-style: italic; }
+  .log li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+<div id="render"></div>
+<script>
+(function () {
+  var d;
+  try { d = JSON.parse(document.getElementById('status-data').textContent); }
+  catch (e) { document.getElementById('render').innerHTML = '<p class="empty">status-data JSON is invalid: ' + e + '</p>'; return; }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var s = d.status || 'todo';
+  var h = '';
+  h += '<h1>' + (esc(d.title) || 'Ticket status') + '</h1>';
+  h += '<div class="muted"><code>' + esc(d.id) + '</code> · <code>' + esc(d.slug) + '</code> · ' + esc(d.sprint || '') + ' · updated ' + (esc(d.updated) || '—') + '</div>';
+  h += '<div><span class="chip ' + s + '">' + esc(s.replace('_', ' ')) + '</span></div>';
+
+  if (d.phase) h += '<div class="field"><b>Phase:</b> ' + esc(d.phase) + '</div>';
+  if (d.branch) h += '<div class="field"><b>Branch:</b> <code>' + esc(d.branch) + '</code></div>';
+  if (d.pr) h += '<div class="field"><b>PR:</b> <code>#' + esc(d.pr) + '</code></div>';
+  if (d.mergedAt) h += '<div class="field"><b>Merged:</b> ' + esc(d.mergedAt) + '</div>';
+  if (d.note) h += '<div class="banner">' + esc(d.note) + '</div>';
+
+  var log = d.log || [];
+  h += '<h2>Log</h2>';
+  if (!log.length) { h += '<p class="empty">No events yet.</p>'; }
+  else {
+    h += '<ul class="log">';
+    log.slice().reverse().forEach(function (e) { h += '<li><span class="muted">' + esc(e.at) + '</span> — ' + esc(e.event) + '</li>'; });
+    h += '</ul>';
+  }
+
+  var led = d.ledger || [];
+  h += '<h2>Learnings (' + led.length + ')</h2>';
+  if (!led.length) { h += '<p class="empty">No recorded defects yet.</p>'; }
+  else {
+    h += '<ul class="log">';
+    led.slice().reverse().forEach(function (e) { h += '<li><span class="muted">' + esc(e.at || '') + '</span> · [' + esc(e.rootCauseClass || 'fix') + '] ' + esc(e.fix || '') + '</li>'; });
+    h += '</ul>';
+  }
+  document.getElementById('render').innerHTML = h;
+})();
+</script>
+</body>
+</html>
