@@ -1,9 +1,10 @@
 # `.claude/loop-engineering.json` — per-project config reference
 
 One file at the **repo root** specializes the loop-engineering skill for a project. It holds project-level *facts*
-(commands, infra, rules, test channels, docs) — **not** the tickets. The tickets + tracking live in a **sprint folder** you
-pass on the command line (`/loop-engineering docs/sprint1 …`), as one `<slug>_ticket.html` + `<slug>_status.html`
-pair per ticket (see "The sprint folder" below).
+(commands, infra, rules, test channels, docs) — **not** the tickets. The tickets + tracking live in a **numbered sprint
+folder** (`<sprintsRoot>/sprint_N`, default root `docs/sprints`) that the loop auto-resolves (or you pass explicitly):
+each ticket gets its **own folder** holding a `<slug>_ticket.html` + `<slug>_status.html` pair plus a
+`<subtask>_plan.html` + `<subtask>_status.html` pair per subtask (see "The sprint folder" below).
 
 The loop master (SKILL.md) consumes the top-level sections; the `project` object is passed **verbatim** to
 `task-flow.mjs` as `args.project`.
@@ -15,7 +16,8 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
 {
   // ── consumed by the loop master (SKILL.md) ──────────────────────────────
   "tracking": {
-    "commit": true                              // commit ticket/status page updates directly on the base branch (only if unprotected)
+    "commit": true,                             // commit ticket/status page updates directly on the base branch (only if unprotected)
+    "sprintsRoot": "docs/sprints"               // dir that holds the numbered sprint_N folders; the loop auto-resolves the highest N (sprint_0 if none)
   },
   "git": {
     "baseBranch": "main",                      // PRs target this; the loop syncs it between tasks
@@ -99,33 +101,47 @@ Every field has a sensible default — start minimal and grow it. `examples/exam
 }
 ```
 
-## The sprint folder (passed on the command line, NOT in this config)
+## The sprint folder (auto-resolved, NOT in this config)
 
-`/loop-engineering <sprintFolder> [description…]` operates on a folder holding **one pair of pages per ticket** (many tickets per sprint):
+`/loop-engineering [sprintsRootOrFolder] [description…]` operates on a **numbered sprint folder**. The loop resolves it:
+if you pass a specific `sprint_*` folder it uses that; otherwise it lists `<sprintsRoot>/sprint_*` (root =
+`tracking.sprintsRoot`, default `docs/sprints`) and takes the **highest N** — `sprint_0` if none exist yet. Bootstrap and
+resume both target that current sprint; to start a fresh one, create `<sprintsRoot>/sprint_<N+1>` yourself.
 
-- **`<slug>_ticket.html`** — a single ticket's spec + accumulated design/spec. It **renders itself** from the JSON
+Inside a sprint folder there is **one folder per ticket** (the ticket is the merge unit — one branch/PR/merge). Each
+`<slug>/` ticket folder holds:
+
+- **`<slug>_ticket.html`** — the ticket's spec + accumulated design/spec. It **renders itself** from the JSON
   in `<script id="ticket-data" type="application/json">`:
-  `{ sprint, id, slug, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed, generatedFrom, record }`.
-  When the ticket merges, the loop fills its `record` (`{pr,mergedAt,design,techSpec}`) and the page renders its
-  design + technical spec underneath.
-- **`<slug>_status.html`** — that ticket's live status. It renders itself from the JSON in
+  `{ sprint, id, slug, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed, subtasks[], generatedFrom, record }`.
+  `subtasks[]` mirrors each subtask's `{subtaskId, slug, title, status}`. When the ticket merges, the loop fills its
+  `record` (`{pr,mergedAt,design,techSpec}`) and the page renders its design + technical spec underneath.
+- **`<slug>_status.html`** (ticket-level, `kind:"ticket"`) — that ticket's live status. It renders itself from the JSON in
   `<script id="status-data" type="application/json">`:
-  `{ sprint, id, slug, title, updated, status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note, log: [ {at,event} ], ledger: [ {at, rootCauseClass, fix} ] }`.
-  The loop edits ONLY these `<script>` JSON blocks; the markup repaints from them. The **`ledger`** is per-ticket; the
-  loop **aggregates** ledgers across all tickets (the cross-ticket failure memory, Tier 2) and feeds the recent entries
-  into the next ticket so the same class of bug isn't repeated.
+  `{ sprint, kind:"ticket", parent:null, id, slug, title, updated, status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note, log: [ {at,event} ], ledger: [ {at, rootCauseClass, fix} ] }`.
+  The **`ledger`** is per-ticket; the loop **aggregates** ledgers across all tickets' ticket-level status pages (the
+  cross-ticket failure memory, Tier 2) and feeds the recent entries into the next ticket so the same class of bug isn't
+  repeated.
+- **`<subtask>_plan.html` + `<subtask>_status.html`** — one pair per subtask (the ticket's plan+status decomposition;
+  the subtasks ship together in the ticket's single PR). The plan renders from `<script id="plan-data">`
+  (`{ sprint, ticket, subtaskId, slug, title, goal, acceptance[], dependsOn[], notes, generatedFrom }`); the subtask
+  status renders from the same status template with `kind:"subtask"`, `parent:<ticket id>`, and no `ledger`.
 
-If the folder is empty/missing, the loop **generates** a `<slug>_ticket.html` + `<slug>_status.html` pair per ticket from
-the description (templates live in `templates/` next to this skill) and runs the sprint autonomously. If ticket pages
-exist, it **resumes** from the next ready ticket. The HTML pages
-are committed to the repo as tracking commits (separate from task code), per `tracking.commit`.
+The loop edits ONLY these `<script>` JSON blocks; the markup repaints from them. If the sprint folder is empty/missing,
+the loop **generates** a ticket folder (ticket pair + subtask pairs) per ticket from the description (templates live in
+`templates/` next to this skill) and runs the sprint autonomously. If ticket folders exist, it **resumes** from the next
+ready ticket. The HTML pages are committed to the repo as tracking commits (separate from ticket code), per
+`tracking.commit`.
 
 ## Field notes
 
-- **Task shape** — `id` (stable, unique, e.g. `S1-T1`), `title`, `goal`, `surfaces` (names from `project.uiSurfaces`
-  plus backend labels; array or `{name: bool}` map), `acceptance[]` (the seed contract — strings or `{id, text, verify}`
-  objects), `outOfScope[]`, `dependsOn[]` (task ids), `detailed` (false = scaffold; the loop pauses and asks instead of
-  building it unattended).
+- **Ticket shape** — `id` (stable, unique, e.g. `S1-T1`), `title`, `goal`, `surfaces` (names from `project.uiSurfaces`
+  plus backend labels; array or `{name: bool}` map), `acceptance[]` (the seed contract, the union of its subtasks'
+  slices — strings or `{id, text, verify}` objects), `outOfScope[]`, `dependsOn[]` (other **ticket** ids), `detailed`
+  (false = scaffold; the loop pauses and asks instead of building it unattended), and `subtasks[]` — the plan
+  decomposition: each `{ subtaskId (e.g. `S1-T1-a`), slug (unique kebab-case within the ticket), title, goal,
+  acceptance[], dependsOn?[] (subtask ids within the ticket) }`. The ticket is the merge unit; every subtask ships in the
+  ticket's one PR (never a PR per subtask). A tiny ticket may have a single subtask.
 - **`project.rules` vs `implementationNotes`** — rules are *what must always hold* (architecture, security, style);
   implementationNotes are *how to operate this repo* (commands to run per stage). Both are injected into coder prompts.
 - **`project.testing` (the three channels)** — the engine's Validate phase authors + runs **api**, **database**, and
@@ -156,6 +172,9 @@ are committed to the repo as tracking commits (separate from task code), per `tr
 - **`project.staticChecks`** — keep them read-only (`no --fix`); the engine treats any failure as validation-red.
 - **`tracking.commit`** — set false when the base branch is protected; the ticket/status page updates then ride on the
   task branch instead of the base branch.
+- **`tracking.sprintsRoot`** — the directory holding the numbered `sprint_N` folders (default `docs/sprints`). When you
+  run `/loop-engineering` without a path, the loop resolves the current sprint as the highest-numbered `sprint_N` here
+  (`sprint_0` if none). Pass a specific `sprint_*` folder on the command line to override.
 - **`merge.highRiskPaths` / `highRiskPatterns` (Tier 1)** — the auto-merge risk gate. A task whose diff touches a
   high-risk path/pattern (schema/migrations/RLS, auth, money, infra, `.github/workflows/`, the loop's own config) — or
   that **deletes any file** — opens its PR but **pauses for a human OK** instead of auto-merging. "CI green" alone never

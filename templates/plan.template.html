@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<!--
+  loop-engineering · SUBTASK PLAN (one subtask of a ticket)
+  ────────────────────────────────────────────────────────────────────────
+  ONE subtask per file, inside its ticket's folder:
+      <sprintFolder>/<ticket-slug>/<slug>_plan.html   — pairs with <slug>_status.html.
+  A ticket folder holds MANY such pairs (one per subtask) alongside the ticket-level
+  <ticket-slug>_ticket.html + <ticket-slug>_status.html pair. The TICKET is the merge unit;
+  subtasks are its plan+status decomposition (they ship together in the ticket's one PR).
+  This page renders itself from the JSON in <script id="plan-data">.
+  The loop edits ONLY that JSON block — never the markup below it.
+
+  plan-data shape:
+  {
+    "sprint":        "docs/sprints/sprint_N",     // the numbered sprint folder
+    "ticket":        "S1-T1",                     // the owning ticket id
+    "subtaskId":     "S1-T1-a",                   // stable subtask id (what within-ticket dependsOn references)
+    "slug":          "define-schema",             // == this file's basename (the <slug> in <slug>_plan.html)
+    "title":         "short subtask title",
+    "goal":          "one-sentence goal for this slice",
+    "acceptance":    ["criterion 1","criterion 2"],  // this subtask's slice of the ticket contract
+    "dependsOn":     [],                          // subtask ids WITHIN this ticket that must land first
+    "notes":         "design/approach notes for this slice (optional)",
+    "generatedFrom": "YYYY-MM-DD by /loop-engineering"
+  }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subtask plan</title>
+<script id="plan-data" type="application/json">
+{
+  "sprint": "",
+  "ticket": "",
+  "subtaskId": "",
+  "slug": "",
+  "title": "",
+  "goal": "",
+  "acceptance": [],
+  "dependsOn": [],
+  "notes": "",
+  "generatedFrom": ""
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2rem; max-width: 900px; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 1.6rem 0 .6rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  .muted { opacity: .65; }
+  .field { margin: .5rem 0; }
+  .field b { opacity: .75; font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
+  .pill { display: inline-block; font-size: .72rem; padding: .08rem .5rem; border-radius: 999px; background: #8883; margin: 0 .2rem .2rem 0; }
+  ul { margin: .3rem 0 .3rem 1.1rem; padding: 0; }
+  .empty { opacity: .6; font-style: italic; }
+  pre { background: #8881; border-radius: 8px; overflow: auto; padding: .75rem .9rem; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="render"></div>
+<script>
+(function () {
+  var d;
+  try { d = JSON.parse(document.getElementById('plan-data').textContent); }
+  catch (e) { document.getElementById('render').innerHTML = '<p class="empty">plan-data JSON is invalid: ' + e + '</p>'; return; }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var listOf = function (arr) { return (arr && arr.length) ? '<ul>' + arr.map(function (x) { return '<li>' + esc(typeof x === 'string' ? x : (x.text || JSON.stringify(x, null, 2))) + '</li>'; }).join('') + '</ul>' : '<span class="empty">—</span>'; };
+  var pills = function (arr) { return (arr && arr.length) ? arr.map(function (x) { return '<span class="pill">' + esc(x) + '</span>'; }).join('') : '<span class="empty">—</span>'; };
+  var h = '';
+  h += '<h1>' + (esc(d.title) || 'Subtask plan') + '</h1>';
+  h += '<div class="muted"><code>' + esc(d.subtaskId) + '</code> · <code>' + esc(d.slug) + '</code> · subtask of <code>' + esc(d.ticket || '') + '</code> · ' + esc(d.sprint || '') + (d.generatedFrom ? ' · generated ' + esc(d.generatedFrom) : '') + '</div>';
+  h += '<div class="field"><b>Goal:</b> ' + esc(d.goal) + '</div>';
+  h += '<div class="field"><b>Depends on:</b> ' + pills(d.dependsOn) + '</div>';
+  h += '<h2>Acceptance</h2>' + listOf(d.acceptance);
+  if (d.notes) h += '<h2>Notes</h2><pre>' + esc(d.notes) + '</pre>';
+  document.getElementById('render').innerHTML = h;
+})();
+</script>
+</body>
+</html>

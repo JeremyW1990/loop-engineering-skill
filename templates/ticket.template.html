@@ -1,24 +1,29 @@
 <!DOCTYPE html>
 <!--
-  loop-engineering · TICKET SPEC (one ticket)
+  loop-engineering · TICKET SPEC (one ticket = the merge unit)
   ────────────────────────────────────────────────────────────────────────
-  ONE ticket per file: <sprintFolder>/<slug>_ticket.html — pairs with <slug>_status.html.
-  A sprint folder holds MANY such pairs (one per ticket), not a single plan+status.
+  ONE ticket per file, inside its OWN folder:
+      <sprintFolder>/<slug>/<slug>_ticket.html   — pairs with <slug>/<slug>_status.html.
+  <sprintFolder> is a numbered sprint dir (e.g. docs/sprints/sprint_2). Each ticket lives in its own
+  <slug>/ folder, which ALSO holds one <subtask>_plan.html + <subtask>_status.html pair per subtask.
   This page renders itself from the JSON in <script id="ticket-data">.
   The loop edits ONLY that JSON block — never the markup below it.
 
   ticket-data shape:
   {
-    "sprint":        "docs/sprint_N",            // the sprint folder
+    "sprint":        "docs/sprints/sprint_N",    // the numbered sprint folder
     "id":            "S1-T1",                    // stable ticket id (this is what dependsOn references)
-    "slug":          "split-other-income",       // == this file's basename (the <slug> in <slug>_ticket.html)
+    "slug":          "split-other-income",       // == this file's basename AND its folder name
     "title":         "short ticket title",
     "goal":          "one-sentence goal",
     "surfaces":      ["api","admin"],            // backend labels + UI surface names
-    "acceptance":    ["criterion 1","criterion 2"],
+    "acceptance":    ["criterion 1","criterion 2"],  // the ticket contract (union of its subtasks' slices)
     "outOfScope":    ["..."],
     "dependsOn":     [],                          // ids of OTHER tickets that must merge first
     "detailed":      true,                        // false = scaffold; the loop pauses to ask
+    "subtasks":      [                            // the ticket's plan decomposition; each has a _plan.html + _status.html pair
+      { "subtaskId": "S1-T1-a", "slug": "define-schema", "title": "…", "status": "todo" }
+    ],
     "generatedFrom": "YYYY-MM-DD by /loop-engineering",
     "record":        null                         // filled by the loop after THIS ticket merges:
     //   { "pr": 123, "mergedAt": "YYYY-MM-DD",
@@ -43,6 +48,7 @@
   "outOfScope": [],
   "dependsOn": [],
   "detailed": true,
+  "subtasks": [],
   "generatedFrom": "",
   "record": null
 }
@@ -58,6 +64,13 @@
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
   .pill { display: inline-block; font-size: .72rem; padding: .08rem .5rem; border-radius: 999px; background: #8883; margin: 0 .2rem .2rem 0; }
   .scaffold { color: #b8860b; font-weight: 600; }
+  .subtasks { list-style: none; margin: .3rem 0; padding: 0; }
+  .subtasks li { display: flex; align-items: center; gap: .5rem; margin: .3rem 0; }
+  .chip { display: inline-block; border-radius: 999px; padding: .05rem .55rem; font-size: .7rem; font-weight: 600; }
+  .chip.todo { background: #8883; }
+  .chip.in_progress { background: #2f6feb33; color: #2f6feb; }
+  .chip.blocked { background: #d1242f33; color: #d1242f; }
+  .chip.done { background: #1a7f3733; color: #1a7f37; }
   ul { margin: .3rem 0 .3rem 1.1rem; padding: 0; }
   .empty { opacity: .6; font-style: italic; }
   .merged { border-left: 4px solid #1a7f37; background: #1a7f3714; border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; }
@@ -99,6 +112,20 @@
   h += '<div class="field"><b>Depends on:</b> ' + pills(d.dependsOn) + '</div>';
   h += '<h2>Acceptance</h2>' + listOf(d.acceptance);
   if (d.outOfScope && d.outOfScope.length) h += '<h2>Out of scope</h2>' + listOf(d.outOfScope);
+
+  var subs = d.subtasks || [];
+  h += '<h2>Subtasks (' + subs.length + ')</h2>';
+  if (!subs.length) { h += '<p class="empty">No subtasks — this ticket is built as one slice.</p>'; }
+  else {
+    h += '<ul class="subtasks">';
+    subs.forEach(function (t) {
+      var st = t.status || 'todo';
+      h += '<li><span class="chip ' + st + '">' + esc(st.replace('_', ' ')) + '</span>'
+         + '<code>' + esc(t.slug || t.subtaskId || '') + '</code> '
+         + '<span>' + esc(t.title || '') + '</span></li>';
+    });
+    h += '</ul>';
+  }
 
   var r = d.record;
   if (r) {
