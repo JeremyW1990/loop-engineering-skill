@@ -164,7 +164,7 @@ const TEST_SCHEMA = {
     failures: { type: 'array', items: { type: 'string' } },
     output: { type: 'string' },
   },
-  required: ['authored', 'executed', 'passed', 'summary'],
+  required: ['channels', 'files', 'authored', 'executed', 'passed', 'summary'],
 }
 
 const VALIDATION_SCHEMA = {
@@ -178,7 +178,7 @@ const VALIDATION_SCHEMA = {
 const DESIGN_REVIEW_SCHEMA = {
   type: 'object',
   properties: {
-    screenshots: { type: 'array', items: { type: 'string' }, description: 'screenshot files actually reviewed' },
+    screenshots: { type: 'array', minItems: 1, items: { type: 'string' }, description: 'current-ticket screenshot files actually reviewed; must come from the test report' },
     a11y: {
       type: 'object',
       description: 'objective accessibility (WCAG AA) — the ONLY blocking lens',
@@ -192,7 +192,7 @@ const DESIGN_REVIEW_SCHEMA = {
     copy: { type: 'array', description: 'ADVISORY microcopy findings (ux-copy lens): empty states, status labels, CTAs, error messages', items: { type: 'object', properties: { element: { type: 'string' }, current: { type: 'string' }, recommended: { type: 'string' }, why: { type: 'string' } }, required: ['recommended'] } },
     summary: { type: 'string' },
   },
-  required: ['a11y', 'summary'],
+  required: ['screenshots', 'a11y', 'critique', 'copy', 'summary'],
 }
 
 const FIX_SCHEMA = {
@@ -288,6 +288,7 @@ const TASK = {
   acceptance: arr(T.acceptance, []),
   outOfScope: arr(T.outOfScope, []),
   dependsOn: arr(T.dependsOn, []),
+  subtasks: arr(T.subtasks, []),
 }
 const BRANCH = str(a.branch, `task/${TASK.id.toLowerCase()}`)
 const SERVERS_UP = a.serversUp === true
@@ -369,6 +370,8 @@ ${PROJECT.readFirst.map((s) => '  - ' + s).join('\n')}
 
 This is task ${TASK.id}: ${TASK.title}
 GOAL: ${TASK.goal}
+SUBTASKS (internal checkpoints that ship in this ticket's one PR):
+${(TASK.subtasks.length ? TASK.subtasks : ['(none specified)']).map((s) => '  - ' + (typeof s === 'string' ? s : JSON.stringify(s))).join('\n')}
 OUT OF SCOPE (do NOT do these — note as followups if tempted):
 ${(TASK.outOfScope.length ? TASK.outOfScope : ['(none specified)']).map((s) => '  - ' + s).join('\n')}
 
@@ -531,16 +534,21 @@ const staticChecks = (
     ),
   )
 ).filter(Boolean)
-// design/UX review (BLOCKING accessibility + ADVISORY critique/copy) — judges the BUILT UI from the real-browser screenshots
-const DESIGN_ENABLED = UI_ENABLED && SERVERS_UP && PROJECT.testing.design !== false
+// design/UX review — accessibility + current screenshot evidence are ALWAYS blocking for UI tickets.
+// testing.design=false may suppress advisory critique/copy only; it cannot disable the evidence gate.
+const DESIGN_ENABLED = UI_ENABLED && SERVERS_UP
+const currentUiScreenshots = (testReport.files || []).filter((f) => /\.png$/i.test(String(f)))
 const designReview = DESIGN_ENABLED
   ? await agent(
-      `${BASE}\n\nDESIGN CONTRACT (the intended UX — judge the built UI against this):\n${JSON.stringify({ ux: design.ux || {}, surfaces: design.surfaces, acceptanceCriteria: design.acceptanceCriteria }, null, 2)}\n\nYou are the DESIGN / UX REVIEW gate. The Validate step drove the REAL UI with the Playwright MCP and saved screenshots under \`${REPO}/.playwright-mcp/\` (the test report referenced: ${JSON.stringify((testReport.files || []).filter((f) => /\\.png$/i.test(String(f))))} — if that list is empty, glob the most recent \`*.png\` under .playwright-mcp/ yourself). READ those screenshots (the Read tool renders PNGs) and judge the built UI across three GENERAL product-design lenses (this is project-agnostic, not specific to any one feature):\n  - **accessibility** (design:accessibility-review lens) — OBJECTIVE WCAG AA, the ONLY BLOCKING lens: text/background contrast, touch-target size (~44px), text legibility, visible focus + labelled controls. Set a11y.pass=false and list violations (severity 'blocker') ONLY for clear, screenshot-visible AA failures; otherwise a11y.pass=true.\n  - **critique** (design:design-critique lens) — ADVISORY: first impression, visual hierarchy (does the eye land on the primary action?), state legibility (can the user tell what just happened / whose turn / what to do next?), consistency, and the empty / loading / error / success / edge + dead-air states. Give concrete finding + where + recommendation.\n  - **copy** (design:ux-copy lens) — ADVISORY: status labels, button/CTA text, empty states, error messages — flag anything unclear, robotic, or ambiguous and give the recommended string (compare to the contract's ux.copy if present).\nADVISORY findings (critique + copy) DO NOT block the merge — they ride into the PR body for the human. ONLY accessibility blocks. Be specific and screenshot-grounded; never invent issues you cannot actually see. List the screenshots you reviewed.${PROJECT.testing.design && typeof PROJECT.testing.design === 'string' ? '\\n\\nPROJECT DESIGN GUIDANCE (brand/voice): ' + PROJECT.testing.design : ''}`,
+      `${BASE}\n\nDESIGN CONTRACT (the intended UX — judge the built UI against this):\n${JSON.stringify({ ux: design.ux || {}, surfaces: design.surfaces, acceptanceCriteria: design.acceptanceCriteria }, null, 2)}\n\nYou are the DESIGN / UX REVIEW gate. Review ONLY the current-ticket screenshots explicitly returned by the test report: ${JSON.stringify(currentUiScreenshots)}. Do not glob or reuse screenshots from an earlier run. If this list is empty or a listed file cannot be read, return screenshots:[] and a11y.pass=false; missing evidence blocks verification. READ every listed screenshot and judge the built UI across three GENERAL product-design lenses:\n  - **accessibility** (design:accessibility-review lens) — OBJECTIVE WCAG AA and BLOCKING: text/background contrast, touch-target size (~44px), text legibility, visible focus + labelled controls. Set a11y.pass=false for a clear failure or missing evidence; otherwise a11y.pass=true.\n  - **critique** (design:design-critique lens) — ADVISORY: first impression, visual hierarchy, state legibility, consistency, and empty/loading/error/success/edge states. ${PROJECT.testing.design === false ? 'Advisory review is disabled: return an empty critique array.' : 'Give concrete finding + where + recommendation.'}\n  - **copy** (design:ux-copy lens) — ADVISORY: status labels, button/CTA text, empty states, and errors. ${PROJECT.testing.design === false ? 'Advisory review is disabled: return an empty copy array.' : 'Flag unclear copy and give the recommended string.'}\nReturn the exact current-ticket paths you reviewed in screenshots. Advisory findings do not block; accessibility or missing current evidence does.${PROJECT.testing.design && typeof PROJECT.testing.design === 'string' ? '\\n\\nPROJECT DESIGN GUIDANCE (brand/voice): ' + PROJECT.testing.design : ''}`,
       { label: 'validate:design-review', phase: 'Validate', agentType: 'general-purpose', schema: DESIGN_REVIEW_SCHEMA },
     )
   : null
 if (designReview) log(`design-review: a11y ${designReview.a11y.pass === false ? 'FAIL (blocks merge)' : 'PASS'} · ${(designReview.critique || []).length} critique + ${(designReview.copy || []).length} copy note(s) [advisory]`)
-const designA11yOk = !designReview || designReview.a11y.pass !== false
+const reviewedCurrentScreenshots = !!designReview && currentUiScreenshots.length > 0 &&
+  (designReview.screenshots || []).length > 0 &&
+  (designReview.screenshots || []).every((path) => currentUiScreenshots.includes(path))
+const designA11yOk = !touchesUI || (!!designReview && reviewedCurrentScreenshots && designReview.a11y.pass === true)
 
 const validationGreen = !!testReport.passed && staticChecks.every((v) => v && v.pass) && !codeBlocked && designA11yOk
 
@@ -624,14 +632,27 @@ const heldOut = heldOutFeasible
 const heldOutOk = !heldOut.authored || !!heldOut.passed
 if (heldOut.authored) log(`held-out test: ${heldOut.passed ? 'PASS' : 'FAIL'}${heldOut.passed ? '' : ' — ' + (heldOut.failures || []).slice(0, 2).join(' | ')}`)
 
-const verified = validationGreen && !tamper.tampered && allCriteriaMet && completeness.coverageOk && !completeness.testGamingSuspected && heldOutOk
-const blocked = !!codeBlocked
+// Defense in depth: the master blocks UI tickets before invoking this Workflow when the live UI cannot be driven.
+// If the Workflow is invoked directly or with stale orchestration, missing browser evidence still fails closed.
+const reportedChannels = (testReport.channels || []).map((channel) => String(channel).toLowerCase())
+const uiChannelReported = reportedChannels.some((channel) => channel === 'ui' || channel.startsWith('ui'))
+const uiEvidenceMissing = touchesUI && (
+  !PROJECT.testing.ui ||
+  !SERVERS_UP ||
+  testReport.executed !== true ||
+  !uiChannelReported ||
+  currentUiScreenshots.length === 0 ||
+  !reviewedCurrentScreenshots
+)
+const verified = !uiEvidenceMissing && validationGreen && !tamper.tampered && allCriteriaMet && completeness.coverageOk && !completeness.testGamingSuspected && heldOutOk
+const blocked = !!codeBlocked || uiEvidenceMissing
 
 // distill this task's defects + fixes for the cross-task failure ledger (Tier 2)
 const ledgerEntries = [
   ...fixHistory.map((f) => ({ task: TASK.id, rootCauseClass: f.weakenedTests ? 'test-weakened' : 'test-fix', fix: f.summary })),
   ...failedCriteria.map((f) => ({ task: TASK.id, rootCauseClass: 'unmet-criterion', fix: `${f.id}: ${f.reason}` })),
   ...(tamper.tampered ? [{ task: TASK.id, rootCauseClass: 'tamper', fix: tamper.summary }] : []),
+  ...(uiEvidenceMissing ? [{ task: TASK.id, rootCauseClass: 'missing-ui-evidence', fix: 'Start the configured local UI servers and complete the live browser drive, screenshots, and accessibility review.' }] : []),
 ].slice(0, 8)
 
 log(`VERDICT ${TASK.id}: ${verified ? 'VERIFIED ✓' : blocked ? 'BLOCKED' : 'NOT verified'} (validationGreen=${validationGreen}, criteriaMet=${allCriteriaMet}, gaming=${completeness.testGamingSuspected}, tamper=${tamper.tampered}, heldOut=${heldOut.authored ? (heldOut.passed ? 'pass' : 'FAIL') : 'n/a'})`)
@@ -640,7 +661,7 @@ return {
   task: { id: TASK.id, title: TASK.title, branch: BRANCH },
   verified,
   blocked,
-  blockReason: codeBlocked || null,
+  blockReason: codeBlocked || (uiEvidenceMissing ? 'UI verification requires live local servers, browser interaction, screenshots, and accessibility review.' : null),
   validationGreen,
   testsPassed: !!testReport.passed,
   testChannels: testReport.channels || [],

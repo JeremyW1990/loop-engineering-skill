@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<!--
+  codex loop-engineering - TICKET PLAN
+  This page renders itself from the JSON in <script id="plan-data">.
+  The loop edits ONLY that JSON block.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ticket plan</title>
+<script id="plan-data" type="application/json">
+{
+  "kind": "ticket",
+  "sprint": "",
+  "id": "",
+  "slug": "",
+  "title": "",
+  "goal": "",
+  "surfaces": [],
+  "acceptance": [],
+  "outOfScope": [],
+  "dependsOn": [],
+  "detailed": true,
+  "subtasks": [],
+  "generatedFrom": "",
+  "record": null
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2rem; max-width: 960px; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 1.6rem 0 .6rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  .muted { opacity: .65; }
+  .field { margin: .5rem 0; }
+  .field b { opacity: .75; font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; background: #8882; padding: .05rem .35rem; border-radius: 4px; }
+  .pill { display: inline-block; font-size: .72rem; padding: .08rem .5rem; border-radius: 999px; background: #8883; margin: 0 .2rem .2rem 0; }
+  .scaffold { color: #b8860b; font-weight: 600; }
+  ul { margin: .3rem 0 .3rem 1.1rem; padding: 0; }
+  .empty { opacity: .6; font-style: italic; }
+  .merged { border-left: 4px solid #1a7f37; background: #1a7f3714; border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; }
+  .record { border: 1px solid #8884; border-radius: 8px; padding: .8rem 1rem; margin: .8rem 0; }
+  .record h3 { margin: 0 0 .4rem; font-size: 1rem; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #8883; vertical-align: top; font-size: .92rem; }
+  th { font-weight: 600; opacity: .8; }
+  pre { background: #8881; border-radius: 8px; overflow: auto; padding: .75rem .9rem; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="render"></div>
+<script>
+(function () {
+  var d;
+  try { d = JSON.parse(document.getElementById('plan-data').textContent); }
+  catch (e) { document.getElementById('render').innerHTML = '<p class="empty">plan-data JSON is invalid: ' + e + '</p>'; return; }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var listOf = function (arr) { return (arr && arr.length) ? '<ul>' + arr.map(function (x) { return '<li>' + esc(typeof x === 'string' ? x : (x.text || JSON.stringify(x, null, 2))) + '</li>'; }).join('') + '</ul>' : '<span class="empty">-</span>'; };
+  var pills = function (arr) { return (arr && arr.length) ? arr.map(function (x) { return '<span class="pill">' + esc(x) + '</span>'; }).join('') : '<span class="empty">-</span>'; };
+  var renderValue = function (value) {
+    if (value == null || value === '') return '<span class="empty">-</span>';
+    if (Array.isArray(value)) return listOf(value);
+    if (typeof value === 'object') return '<pre>' + esc(JSON.stringify(value, null, 2)) + '</pre>';
+    return esc(value);
+  };
+  var h = '';
+  h += '<h1>' + (esc(d.title) || 'Ticket') + (d.detailed === false ? ' <span class="scaffold">scaffold</span>' : '') + '</h1>';
+  h += '<div class="muted"><code>' + esc(d.id) + '</code> - <code>' + esc(d.slug || '') + '</code> - ' + esc(d.sprint || '') + (d.generatedFrom ? ' - generated ' + esc(d.generatedFrom) : '') + '</div>';
+  h += '<div class="field"><b>Goal:</b> ' + esc(d.goal) + '</div>';
+  h += '<div class="field"><b>Surfaces:</b> ' + pills(d.surfaces) + '</div>';
+  h += '<div class="field"><b>Depends on tickets:</b> ' + pills(d.dependsOn) + '</div>';
+  h += '<h2>Acceptance</h2>' + listOf(d.acceptance);
+  if (d.outOfScope && d.outOfScope.length) h += '<h2>Out of scope</h2>' + listOf(d.outOfScope);
+  h += '<h2>Subtasks (' + ((d.subtasks || []).length) + ')</h2>';
+  if (!d.subtasks || !d.subtasks.length) h += '<p class="empty">No subtasks yet.</p>';
+  else {
+    h += '<table><thead><tr><th>ID</th><th>Slug</th><th>Title</th><th>Required</th></tr></thead><tbody>';
+    d.subtasks.forEach(function (s) {
+      h += '<tr><td><code>' + esc(s.id) + '</code></td><td><code>' + esc(s.slug) + '</code></td><td>' + esc(s.title) + '</td><td>' + (s.required === false ? 'optional' : 'required') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  var r = d.record;
+  if (r) {
+    h += '<div class="merged"><b>Merged</b> ' + esc(r.mergedAt || '') + (r.pr ? ' in <code>#' + esc(r.pr) + '</code>' : '') + '</div>';
+    h += '<h2>Record</h2>' + renderValue(r);
+  }
+  document.getElementById('render').innerHTML = h;
+})();
+</script>
+</body>
+</html>

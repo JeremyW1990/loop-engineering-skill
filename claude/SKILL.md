@@ -1,18 +1,17 @@
 ---
 name: loop-engineering
-description: Project-agnostic sprint loop-engineering cycle — point it at (or let it auto-resolve) the current numbered `sprint_N` folder. Each ticket gets its OWN folder holding a `<slug>_ticket.html` spec + `<slug>_status.html` tracker, PLUS a `<subtask>_plan.html` + `<subtask>_status.html` pair per subtask. It generates (or resumes) the tickets, then autonomously drains the sprint: per ticket design (a UX lens — design-critique + ux-copy — runs on any UI work) → technical spec → code → validate (API / database + a REAL-BROWSER Playwright-MCP drive that clicks + screenshots the live UI, then a design/UX review of those shots — accessibility gates the merge, critique + copy are advisory; loop-until-green) → docs → clean-room review → auto-merge after green, update the ticket + subtask status pages, next ticket. The ticket stays the merge unit (one branch/PR/merge); subtasks are its plan+status decomposition. Sprint folders are numbered `sprint_N` under a configurable sprints root (default `docs/sprints`): with none present it uses `sprint_0`, otherwise the highest N is the current sprint. Project facts come from .claude/loop-engineering.json (bootstraps on first run). Pauses to ask a human only on genuine ambiguity.
-argument-hint: "[sprintsRootOrFolder] [sprint description…]   e.g. /loop-engineering Build the waitlist admin review flow  (bootstraps into the current sprint_N under docs/sprints)   ·   /loop-engineering   (resume the current sprint)   ·   /loop-engineering docs/sprints/sprint_3   (target a specific sprint)   ·   add `dryRun` to stop at the PR"
+description: Project-agnostic Claude Code sprint loop-engineering cycle. Group one parent feature or large product ticket in exactly one indexed folder under `docs/sprints/sprint_N`; keep all internal implementation-ticket and subtask plan/status pages flat inside it. Each implementation ticket remains one branch, one PR, and one risk-gated merge. Generate or resume the pages, run design → technical spec → code → validation → docs → independent review, and pause on genuine ambiguity or high-risk merge decisions.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Workflow, AskUserQuestion
 ---
 
 You are running the **loop-engineering cycle** — a self-driving sprint loop. You operate on a **numbered sprint folder**
-(`<sprintsRoot>/sprint_N`, auto-resolved to the current sprint). You generate (or resume) the sprint's tickets — **each
-ticket in its OWN folder**, holding a `<slug>_ticket.html` spec + `<slug>_status.html` tracker plus a
-`<subtask>_plan.html` + `<subtask>_status.html` pair per subtask — then repeatedly pull the next ready ticket, build it
-(design → technical spec → code → validate → docs), prove it, and — after an independent clean-room review + green CI —
-auto-merge it, update its status pages, and move to the next ticket until the sprint is drained. **The ticket is the
-merge unit** (one branch, one PR, one merge); its subtasks are the plan+status decomposition that ships inside that one
-PR.
+(`<sprintsRoot>/sprint_N`, auto-resolved to the current sprint). One related parent feature or large product ticket gets
+exactly one direct **feature/program folder** under that sprint. All internal implementation-ticket and subtask
+plan/status pages are flat files inside it, traced by one `index.html`; never create nested ticket or subtask folders.
+Then repeatedly pull the next ready implementation ticket, build it (design → technical spec → code → validate → docs),
+prove it, and — after an independent clean-room review + green CI — risk-gate its merge, update the flat pages and
+program index, and move to the next ticket. **The internal implementation ticket is the merge unit** (one branch, one
+PR, one merge); its subtasks ship inside that PR. Documentation folders never follow branch or PR boundaries.
 
 **Ask freely — it is never a failure.** Autonomy is the goal, but at ANY step (bootstrap, plan generation, design,
 technical spec, coding, test design, validation, review) if something is genuinely ambiguous, or is a product/scope
@@ -41,8 +40,8 @@ hard guardrails against false-completion and test-gaming.
 - **`dryRun`** (flag, anywhere in the args) — open each PR and **stop** (no merge). Recommended for the first run on a
   new project so a human can watch one full cycle before trusting auto-merge.
 - **`taskId=<ID>`** (optional) — force a specific ticket instead of next-by-dependency.
-- **`max=<N>`** (optional) — process at most N tickets this invocation. Default: **drain the whole sprint** (still
-  pauses on any blocker/ambiguity).
+- **`max=<N>`** (optional) — process at most N tickets this invocation. Default: **one ticket**. Drain multiple tickets
+  only when the human explicitly requests it.
 
 ## Step 0 · Load the project config (once per invocation)
 
@@ -71,65 +70,66 @@ directly and skip the rest of 1a. Otherwise:
 - **Bootstrap and resume BOTH target this current (max, or 0) sprint** — never auto-create `sprint_<max+1>`. To start a
   brand-new sprint, the human creates `<root>/sprint_<N+1>` (or passes it explicitly); only then does it become the max.
 
-**1b · The sprint layout.** A sprint folder holds **one folder per ticket**; the ticket is the merge unit. Inside each
-`<slug>/` ticket folder:
-- `<slug>_ticket.html` — the ticket's spec + accumulated design/spec record. `slug` == the folder name; `id` is the
-  stable ticket id that other tickets' `dependsOn` reference.
-- `<slug>_status.html` — the **ticket-level** live status + failure ledger (the merge-unit tracker: branch/PR/merge).
-- for each subtask, a `<subSlug>_plan.html` + `<subSlug>_status.html` pair — the finer plan + live status. Subtasks are
-  the ticket's decomposition; they ship together in the ticket's single PR.
+**1b · The canonical sprint layout.** In product conversation, “ticket” may mean the whole large feature. Resolve that
+ambiguity in favor of the user's folder model:
 
-**1c · Resume vs bootstrap.**
-- **Sprint folder has ticket folders (any `*/` subdir containing a `*_ticket.html`) → RESUME.** For each ticket folder:
-  read its `<slug>_ticket.html` (parse the embedded JSON — the manifest contract below), its `<slug>_status.html`
-  (ticket-level: the one whose `slug` == the folder name / `kind:"ticket"`), and every `<subSlug>_plan.html` +
-  `<subSlug>_status.html` pair. Build an in-memory ticket list (each ticket carrying its `subtasks[]` with per-subtask
-  status). The ticket specs + statuses are the source of truth; the sprint-description argument (if any) is ignored.
-  Continue from the next ready ticket.
-- **Sprint folder has flat `*_ticket.html` files directly in it (no per-ticket subfolders) → LEGACY FLAT LAYOUT, STOP.**
-  This is an older-format sprint (pre–ticket-folders, or one whose folder isn't named `sprint_N`). Do **NOT** bootstrap
-  over it and do **NOT** attempt to resume it as-is. STOP and tell the human it must first be migrated to the
-  `sprint_N/<slug>/` folder layout — each flat `<slug>_ticket.html` + `<slug>_status.html` pair moved into its own
-  `<slug>/` folder (and, going forward, given subtask pairs). Only after migration will the loop pick it up. This guard
-  exists so a half-finished flat sprint is never clobbered by a bootstrap.
-- **Sprint folder empty / missing → BOOTSTRAP, then run autonomously (no approval gate):**
-  1. Create the sprint folder (`mkdir -p <sprintFolder>`).
-  2. **Break the sprint into tickets, and each ticket into subtasks.** Spawn a planning agent (Task tool /
-     `general-purpose`) that reads the project's `readFirst` docs + the repo and, from the **sprint description**,
-     produces an ordered ticket breakdown. Each ticket:
-     `{ id, slug, title, goal, surfaces[], acceptance[], outOfScope[], dependsOn[], detailed:true, subtasks:[ {subtaskId, slug, title, goal, acceptance[], dependsOn?[]} ] }`.
-     Keep tickets small and independently shippable; set ticket `dependsOn` (by ticket id) to encode order; give stable
-     ids (`S1-T1`, `S1-T2`, …) and a unique kebab-case `slug` each (e.g. `split-other-income`). Give each subtask a
-     stable `subtaskId` (`S1-T1-a`, `S1-T1-b`, …) and a unique kebab-case `slug` **within its ticket** (distinct from
-     the ticket slug); the ticket's `acceptance[]` is the union of its subtasks' acceptance slices. A tiny ticket may
-     have a single subtask.
-  3. **For EACH ticket, create its folder and write its files** (every page **self-renders** from its JSON — do NOT
-     write any HTML by hand):
-     - `mkdir -p <sprintFolder>/<slug>`.
-     - `<sprintFolder>/<slug>/<slug>_ticket.html` — copy `templates/ticket.template.html`, replacing its
-       `<script id="ticket-data" …>` body with
-       `{ sprint, id, slug, title, goal, surfaces, acceptance, outOfScope, dependsOn, detailed, subtasks:[{subtaskId, slug, title, status:"todo"}], generatedFrom, record:null }`.
-     - `<sprintFolder>/<slug>/<slug>_status.html` — copy `templates/status.template.html`, replacing its
-       `<script id="status-data" …>` body with
-       `{ sprint, kind:"ticket", parent:null, id, slug, title, updated, status:"todo", phase:null, branch:null, pr:null, mergedAt:null, note:null, log:[], ledger:[] }`.
-     - **for each subtask**, `<sprintFolder>/<slug>/<subSlug>_plan.html` — copy `templates/plan.template.html`,
-       replacing its `<script id="plan-data" …>` body with
-       `{ sprint, ticket:<ticket id>, subtaskId, slug:<subSlug>, title, goal, acceptance, dependsOn:[], notes:"", generatedFrom }`;
-       and `<sprintFolder>/<slug>/<subSlug>_status.html` — copy `templates/status.template.html`, replacing its
-       `<script id="status-data" …>` body with
-       `{ sprint, kind:"subtask", parent:<ticket id>, id:<subtaskId>, slug:<subSlug>, title, updated, status:"todo", phase:null, note:null, log:[] }`.
-  4. Commit all ticket folders on the base branch (`chore(loop): bootstrap sprint <folder>`) per the tracking-commit
-     rule, then begin the cycle immediately on the first ready ticket. **Do not pause for plan approval** — this loop
-     runs start-to-finish.
+```text
+docs/sprints/sprint_N/
+  feature_program_slug/
+    index.html
+    sN-t1-ticket_slug_plan.html
+    sN-t1-ticket_slug_status.html
+    sN-t1-st1-subtask_slug_plan.html
+    sN-t1-st1-subtask_slug_status.html
+    sN-t2-another_ticket_plan.html
+    sN-t2-another_ticket_status.html
+```
 
-**Manifest contract (how to read/write each page).** Every page **renders itself from a single JSON `<script>`
-block** — read it by parsing that script's text, and when updating, **edit ONLY that JSON block**; the page repaints
-from it, so there is no hand-written HTML to keep in sync. Pair files inside a ticket folder by matching `slug`/`id`.
-- `<slug>_ticket.html` → `<script id="ticket-data" …>` = `{ sprint, id, slug, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[], detailed, subtasks[], generatedFrom, record }` (`subtasks[]` mirrors each subtask's `{subtaskId, slug, title, status}`; `record` stays null until the ticket merges, then holds `{ pr, mergedAt, design, techSpec }`).
-- `<slug>_status.html` (ticket-level, `kind:"ticket"`) → `<script id="status-data" …>` = `{ sprint, kind:"ticket", parent:null, id, slug, title, updated, status:"todo|in_progress|blocked|done", phase, branch, pr, mergedAt, note, log:[ {at,event} ], ledger:[ {at,rootCauseClass,fix} ] }`.
-- `<subSlug>_plan.html` → `<script id="plan-data" …>` = `{ sprint, ticket, subtaskId, slug, title, goal, acceptance[], dependsOn[], notes, generatedFrom }`.
-- `<subSlug>_status.html` (subtask-level, `kind:"subtask"`) → `<script id="status-data" …>` = `{ sprint, kind:"subtask", parent:<ticket id>, id:<subtaskId>, slug, title, updated, status, phase, note, log:[ {at,event} ] }` (no `ledger` — that is ticket-level).
-- **The ledger is per-ticket** and lives on the **ticket-level** `<slug>_status.html`. For the cross-ticket failure memory, the loop **aggregates** `ledger[]` from ALL ticket-level status pages (one per ticket folder): tag each entry with its ticket `id`, sort by `at`, keep the recent ~50, and feed that forward as the next ticket's `failureLedger`. Subtask status pages carry no ledger.
+- One parent feature or large product ticket gets **exactly one direct feature/program folder** under the sprint.
+- Every internal implementation-ticket and subtask page is a **flat direct child** of that folder. Never create nested
+  ticket or subtask directories.
+- `index.html` traces every implementation ticket, dependency, status, branch, PR, merge, and subtask. The individual
+  plan/status pages remain authoritative; refresh the index after their state changes.
+- Filenames are deterministic and collision-resistant:
+  `{ticket-id-lower}-{ticket-slug}_{plan|status}.html` and
+  `{subtask-id-lower}-{subtask-slug}_{plan|status}.html`.
+- One internal implementation ticket is still one branch, one PR, and one risk-gated merge. Subtasks never create
+  their own branches or PRs. Branch and PR boundaries never create documentation folders.
+- New work must use this layout. Legacy ticket-folder, flat-ticket, and monolithic sprint layouts remain readable but
+  must not be copied into new work or reorganized unless the user explicitly asks for a migration.
+
+**1c · Resume vs bootstrap.** Use `scripts/loop_pages.py` for extraction, validation, discovery, bootstrapping, and
+index refreshes; do not hand-edit rendered HTML.
+
+- **A direct child has `index.html` with `program-data` → RESUME.** Validate its index, discover its authoritative flat
+  ticket/subtask pairs, and continue from the next ready implementation ticket. If multiple program folders exist and
+  the request does not identify one, ask which program to use.
+- **Only a legacy layout exists → RESUME READABLY.** The helper recognizes legacy ticket-folder, flat-ticket, and
+  monolithic pages. Do not create more legacy-shaped pages and do not silently migrate them.
+- **The requested feature/program is missing → BOOTSTRAP, then run autonomously:**
+  1. Create or resolve the current sprint folder. Do not create `sprint_<max+1>` unless the human explicitly asks to
+     start a new sprint.
+  2. From the description, produce one program plus an ordered implementation-ticket breakdown. Give every ticket a
+     stable ID (`S3-T1`, `S3-T2`, …), dependencies by ticket ID, acceptance criteria, and one or more stable subtasks
+     (`S3-T1-ST1`, `S3-T1-ST2`, …).
+  3. Run `scripts/loop_pages.py bootstrap-program` once for the parent feature/program folder.
+  4. Run `scripts/loop_pages.py bootstrap-ticket --program <program-slug>` for every implementation ticket. This
+     creates the flat ticket pair and its subtask pairs from `assets/templates/`.
+  5. Run `scripts/loop_pages.py refresh-index <program-folder>` and
+     `scripts/loop_pages.py validate program <program-folder>/index.html`.
+  6. Commit the single program folder on the base branch per the tracking-commit rule, then begin the first ready
+     ticket. Do not pause for plan approval unless a genuine product, scope, or safety ambiguity remains.
+
+**Manifest contract (how to read/write each page).** Every page renders from one embedded JSON script block. Edit only
+that JSON block, then refresh and validate the program index.
+
+- `index.html` uses `program-data` and is a derived navigation/rollup view.
+- Ticket and subtask plan pages use `plan-data`; status pages use `status-data`.
+- Ticket plans carry `kind:"ticket"`, stable identity, acceptance, `dependsOn`, `detailed`, subtask identities, and a
+  post-merge `record`.
+- Ticket statuses carry branch/PR/merge state plus the per-ticket failure `ledger`.
+- Subtask plans/statuses carry their parent `ticketId` and `ticketSlug`, but no branch, PR, or merge authority.
+- Aggregate recent ticket ledgers across the selected program and feed them forward as `failureLedger`.
 
 ---
 
@@ -141,12 +141,14 @@ from it, so there is no hand-written HTML to keep in sync. Pair files inside a t
    `preflight.healthChecks` command; all must pass before continuing.
 3. Dev servers (only if the config defines `preflight.devServers`): run its `check` command. If down, run `start`
    **in the background** and poll until `ports` bind (~60–90s). Servers must be **UP** for the real-browser
-   Playwright-MCP UI channel to *run* (it drives a live browser — clicks + screenshots — against those servers); if they
-   won't come up, continue with `serversUp:false` — the engine then *authors* the headless regression spec but defers the
-   live real-browser drive, and you note that in the PR. **Never smoke-test against shared/staging/prod environments.**
-4. Re-read every ticket folder's `<slug>_ticket.html` + `<slug>_status.html` + subtask pairs. Build the ticket list with
-   live status. **Treat git history + actual test results as ground truth** — if a status page disagrees with what's
-   actually merged on the base branch, trust git and correct that page (a crashed prior run can leave one stale).
+   Playwright-MCP UI channel to run. If they cannot start, record `serversUp:false`; non-UI tickets may continue, but a
+   ticket touching a configured UI surface is blocked before code and cannot be verified or merged. A headless spec is
+   useful future coverage, but it never substitutes for the live drive, screenshots, and accessibility review. **Never
+   smoke-test against shared/staging/prod environments.**
+4. Run `scripts/loop_pages.py discover <sprintFolder>` and re-read the selected program's flat ticket/subtask pairs.
+   Build the ticket list with live status. **Treat git history + actual test results as ground truth** — if a status
+   page disagrees with what is actually merged on the base branch, trust git, correct the page, then refresh and
+   validate its `index.html`.
 
 ---
 
@@ -160,16 +162,21 @@ from it, so there is no hand-written HTML to keep in sync. Pair files inside a t
   human** (AskUserQuestion): (a) draft its full spec now together, mark it `detailed`, continue; (b) skip to the next
   *detailed* ready ticket; (c) end. **Never build a scaffold ticket unattended.**
 - **If no ticket is ready:** STOP — report the sprint state (done count, what's blocked on what).
-- Create the branch: `git switch -c <git.branchPrefix><id-lowercased>`.
-- **Baseline smoke test:** if `preflight.smokeTest` is configured, run it now on the fresh branch. If it fails, the base
+- **UI fail-closed gate:** if the ticket's surfaces intersect `project.uiSurfaces`, require non-empty `project.testing.ui`
+  instructions and `serversUp:true`. Otherwise mark the ticket blocked with the missing prerequisite and STOP before
+  code. Do not let a human-free run waive browser evidence.
+- **Baseline smoke test:** if `preflight.smokeTest` is configured, run it now on the synchronized, clean base branch. If it fails, the base
   branch is already broken — STOP and ask the human; never build a new ticket on a red base. Also **aggregate the recent
-  `ledger[]` entries across all ticket-level `<slug>_status.html` pages**: tag each entry with its ticket `id`, sort by
+  `ledger[]` entries across all ticket-level status pages in the selected program**: tag each entry with its ticket `id`, sort by
   `at`, keep the recent ~50, and pass them to the engine as prior-ticket learnings.
-- Update **this ticket's pages** (edit only the JSON blocks): in `<slug>_status.html` (ticket-level) set
-  `status:"in_progress"`, `phase:"design"`, `branch:<branch>`, bump `updated`; set each subtask's `<subSlug>_status.html`
-  to `status:"in_progress"` and mirror those statuses into the ticket page's `subtasks[]`. Commit on the base branch
+- Determine `<branch>` from `git.branchPrefix` plus the lowercased ticket ID. While still on the base branch, update
+  **this ticket's flat pages** (edit only the JSON blocks): in its ticket status page set `status:"in_progress"`,
+  `phase:"design"`, `branch:<branch>`, and bump `updated`; set each required subtask status page to
+  `status:"in_progress"`. Refresh and validate the containing program's `index.html`. Commit on the base branch
   (`chore(loop): start <ID>`) per the tracking-commit rule (only if `git.baseBranch` is unprotected and
   `tracking.commit` is true; otherwise keep tracking edits on the ticket branch).
+- Create the ticket branch from that state: `git switch -c <branch>`. Uncommitted tracking edits carry onto this branch
+  when `tracking.commit` is false.
 
 ### Stages 2–7 · Build via the engine (design → tech spec → code → validate → docs → verify)
 Invoke the per-ticket Workflow — this is where sub-agents are dynamically spawned. **The engine runs once per ticket**
@@ -177,13 +184,13 @@ Invoke the per-ticket Workflow — this is where sub-agents are dynamically spaw
 ticket lands in one diff.
 ```
 Workflow({ scriptPath: "<skill-dir>/task-flow.mjs", args: {
-  task: <the full ticket object (from its `<slug>_ticket.html`): id, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[], subtasks[]>,
+  task: <the full ticket object from its flat ticket plan page: id, title, goal, surfaces, acceptance[], outOfScope[], dependsOn[], subtasks[]>,
   branch: "<git.branchPrefix><id>",
   repo: "<absolute repo path>",
   serversUp: <bool from preflight>,
   maxFixRounds: <engine.maxFixRounds, default 3>,
   maxTaskTokens: <engine.maxTaskTokens, optional — per-task output-token ceiling; the engine PAUSES to escalate rather than grind past it>,
-  failureLedger: <the recent ~50 `ledger[]` entries aggregated across all ticket-level `<slug>_status.html` pages, each tagged with its ticket id and sorted by `at` — prior tickets' defects+fixes, fed forward so the engine avoids repeats>,
+  failureLedger: <the recent ~50 `ledger[]` entries aggregated across all ticket status pages in the selected program, each tagged with its ticket id and sorted by `at` — prior tickets' defects+fixes, fed forward so the engine avoids repeats>,
   project: <the config's `project` object, verbatim — incl. testing.{api,database,ui}, docs[], testGuard, …>
 }})
 ```
@@ -244,25 +251,39 @@ semantically break a consumer the tests don't cover. This gate is the most impor
      re-poll. If still red after `ci.maxFixAttempts` (default **2**) → STOP and ask the human.
 4. **Merge:** `gh pr merge <n> --<git.mergeMethod, default squash> --delete-branch`, then
    `git switch <git.baseBranch> && git pull --ff-only`.
-   - **`dryRun`:** skip steps 3–4 — leave the PR open and report `#n` for the human to merge.
+   - **`dryRun`:** skip steps 3–4 and jump to Stage 5a. Never fall through to merged-state persistence.
+
+### Stage 5a · `dryRun` open-PR state (terminal for this invocation)
+When `dryRun` is set, the PR is open but the ticket is not merged:
+
+- Keep the ticket `status:"in_progress"`, set `phase:"pr_open"`, set `pr:<n>`, keep `mergedAt:null`, and append a log
+  entry that the PR awaits human review/merge.
+- Keep the ticket plan's `record` null. Do not mark subtasks done merely because validation passed; leave them
+  `in_progress` with a review note.
+- Refresh and validate the program index, commit/push the tracking update to the ticket branch when appropriate, then
+  **STOP** and report the PR. Do not enter Stage 5b, do not satisfy dependency gates, and do not start another ticket.
 
 ### Stage 5b · Persist the record + update status (close the cycle)
-All edits target **this ticket's own folder** (`<slug>_ticket.html`, `<slug>_status.html`, and its subtask pairs); leave every OTHER ticket folder untouched.
-- **`<slug>_ticket.html`:** in its `ticket-data` JSON, set `record` to
+Enter this stage only after GitHub confirms the ticket PR was merged into the configured base branch.
+All edits target **this ticket's flat page pair and its subtask pairs inside the one program folder**; leave every other
+ticket's authoritative pages untouched.
+- **Ticket plan page:** in its `plan-data` JSON, set `record` to
   `{ pr:<n>, mergedAt:<today>, design:<report.design>, techSpec:<report.techSpec> }` so the ticket page becomes its
-  living design+spec record, and set every entry in `subtasks[]` to `status:"done"` (or, if a specific subtask's criteria
-  went unmet, `"blocked"`). Leave `id/slug/title/goal/acceptance/dependsOn` unchanged — the spec is stable.
-- **`<slug>_status.html`** (ticket-level)**:** in its `status-data` JSON, set `status:"done"`, `pr:<n>`, `mergedAt:<today>`, `phase:null`; append a
+  living design+spec record. Leave `id/slug/title/goal/acceptance/dependsOn` unchanged — the spec is stable.
+- **Ticket status page:** in its `status-data` JSON, set `status:"done"`, `pr:<n>`, `mergedAt:<today>`, `phase:null`; append a
   `log` entry (`{at, event:"merged in #<n> — <one-line>"}`); **append `report.ledgerEntries` to this ticket's `ledger`** so
   the next ticket learns from this one's defects; bump `updated`.
-- **Each `<subSlug>_status.html`:** set `status:"done"` (or `"blocked"` for any subtask whose criteria failed), `phase:null`, append a `log` entry, bump `updated`. Use `report.acceptanceCriteria` / `report.verdicts` to map results back to the right subtask where possible; otherwise mark them all done on merge.
+- **Each subtask status page:** set `status:"done"` (or `"blocked"` for any subtask whose criteria failed), `phase:null`, append a `log` entry, and bump `updated`. Use `report.acceptanceCriteria` / `report.verdicts` to map results back to the right subtask where possible; otherwise mark all required subtasks done on merge.
+- Run `scripts/loop_pages.py refresh-index <program-folder>` and validate `index.html` before committing.
 - Commit (`chore(loop): <ID> merged (#<n>) + sprint docs`) and push, per the tracking-commit rule.
 - (On a **blocked** ticket — Stage 4b — also append `report.ledgerEntries` to its ticket-level `ledger` before pausing; the learnings
   matter whether or not it merged.)
 
 ### Stage 6 · Loop
-- Decrement the ticket budget. If more ready tickets remain and `max` allows, go to **Stage 1** for the next one.
-  Otherwise STOP with a summary (what merged, what's next, any pauses), and point at the sprint folder's ticket-level `<slug>_status.html` pages for the live picture.
+- Decrement the ticket budget. If the human explicitly requested more than one ticket, more ready tickets remain, and
+  `max` allows, go to **Stage 1** for the next one.
+  Otherwise STOP with a summary (what merged, what's next, any pauses), and point at the selected program folder's
+  `index.html` for the live picture.
 
 ---
 
@@ -271,6 +292,9 @@ All edits target **this ticket's own folder** (`<slug>_ticket.html`, `<slug>_sta
 - **Auto-merge requires ALL of:** `report.verified === true` (validation green — incl. the **accessibility design-gate** — + every criterion met by the clean-room
   verifier + no test-gaming + anti-tamper clean + the held-out test passed), CI green (when required), **and a low-risk
   diff** (Stage 4c). Anything less → pause, never merge.
+- **UI proof cannot be disabled:** a UI ticket also requires an executed UI channel, non-empty current-ticket screenshot
+  paths, and an accessibility review of those exact screenshots. `testing.design:false` may suppress advisory
+  critique/copy only; it never bypasses screenshots or accessibility.
 - **Risk-gate auto-merge:** schema/migration/RLS, auth, money, infra, `.github/workflows/`, the loop's own
   config/tracking, and any file deletion are HIGH-RISK — open the PR but require a human OK before merge (Stage 4c).
   A suspected test-tamper or a failed held-out test is a hard block regardless of CI.
@@ -287,7 +311,7 @@ All edits target **this ticket's own folder** (`<slug>_ticket.html`, `<slug>_sta
   weaken a test to go green. Honor every entry in the config's `project.forbidden` list.
 - **Caps:** `engine.maxFixRounds` (default 3) inside the engine; `ci.maxFixAttempts` (default 2); optional
   `engine.maxTaskTokens` per-task ceiling. On any cap exhaustion **escalate to the human — do NOT auto-raise the cap**
-  (more grind raises hack-rate, not correctness). Default = drain the whole sprint unless `max=<N>`.
+  (more grind raises hack-rate, not correctness). Default = one ticket; process more only when explicitly requested.
 - **The merge unit is the ticket** (one branch/PR/merge). Subtasks are its plan+status decomposition and ship inside
   that one PR — never open a separate PR per subtask.
 - One commit per logical change; keep tracking-doc commits separate from ticket code.
@@ -295,4 +319,4 @@ All edits target **this ticket's own folder** (`<slug>_ticket.html`, `<slug>_sta
 ## Stopping conditions
 
 Sprint drained · next ready ticket is a scaffold · a ticket is blocked/unverified · CI won't go green · `max` reached · the
-human says stop. Always end with a short status and point at the sprint folder's ticket-level `<slug>_status.html` pages for the live picture.
+human says stop. Always end with a short status and point at the selected program folder's `index.html` for the live picture.
