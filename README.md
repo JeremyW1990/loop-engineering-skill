@@ -1,60 +1,140 @@
 # loop-engineering
 
-A project-agnostic [Claude Code](https://claude.com/claude-code) **skill** that runs an autonomous *sprint
-loop-engineering cycle*: point it at (or let it auto-resolve) the current numbered `sprint_N` folder and give a
-description, and it plans the sprint, then drains it ticket-by-ticket — each ticket going through **design → technical
-spec → code → validate (UI via a real-browser Playwright-MCP drive that clicks + screenshots the live UI / API /
-database) → docs → an independent clean-room review**, then a **risk-gated auto-merge** — pausing to ask a human on any
-genuine ambiguity. Each ticket lives in its **own folder** with a `<slug>_ticket.html` spec + `<slug>_status.html`
-tracker and a `<subtask>_plan.html` + `<subtask>_status.html` pair per subtask; the ticket is the merge unit (one
-branch/PR/merge) and its subtasks ship inside that one PR.
+A Git-backed, multi-runtime Loop Engineering skill for Claude Code and Codex. One repository is the canonical source;
+each runtime uses a small adapter for its own tools while sharing the same sprint-layout contract.
 
-It's built on Anthropic's [Harness Design for Long-Running Agent Tasks](https://www.anthropic.com/engineering/harness-design-long-running-apps)
-(a generator writes, an independent evaluator verifies, against a contract agreed *before* any code is written) and
-hardened with practices from recent Anthropic & OpenAI agent-engineering writing.
+The loop groups one parent feature or large product ticket in exactly one indexed folder under
+`docs/sprints/sprint_N/`. Internal implementation-ticket and subtask plan/status pages are flat files inside that
+folder, traced by one `index.html`. Each internal implementation ticket remains one branch, one PR, and one risk-gated
+merge; documentation folders do not follow branch or PR boundaries.
 
-## Install
+## Install Once for Claude and Codex
 
-Clone into your Claude Code skills directory:
+The shell commands below target macOS and Linux.
+
+Create the discovery parents and clone the repository to a runtime-neutral location:
 
 ```sh
-git clone https://github.com/JeremyW1990/loop-engineering-skill.git ~/.claude/skills/loop-engineering
+mkdir -p ~/.local/share ~/.claude/skills ~/.codex/skills
+git clone https://github.com/JeremyW1990/loop-engineering-skill.git \
+  ~/.local/share/loop-engineering-skill
 ```
 
-Then, in Claude Code:
+If either discovery entry already exists, inspect it and move it to a backup first. Do not run `ln -s` against an
+existing directory because that would nest the new link inside the stale skill:
 
+```sh
+stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p ~/.local/share/loop-engineering-backups
+if [ -e ~/.claude/skills/loop-engineering ] || [ -L ~/.claude/skills/loop-engineering ]; then
+  mv ~/.claude/skills/loop-engineering \
+    ~/.local/share/loop-engineering-backups/claude-$stamp
+fi
+if [ -e ~/.codex/skills/loop-engineering ] || [ -L ~/.codex/skills/loop-engineering ]; then
+  mv ~/.codex/skills/loop-engineering \
+    ~/.local/share/loop-engineering-backups/codex-$stamp
+fi
 ```
-/loop-engineering Build the waitlist admin review flow
+
+After preserving any existing install, expose the adapters through local discovery symlinks. The guarded block exits
+before either link is created if a destination still exists:
+
+```sh
+set -eu
+if [ -e ~/.claude/skills/loop-engineering ] || [ -L ~/.claude/skills/loop-engineering ] || \
+   [ -e ~/.codex/skills/loop-engineering ] || [ -L ~/.codex/skills/loop-engineering ]; then
+  echo "A Loop Engineering discovery entry still exists; inspect or back it up first." >&2
+  exit 1
+fi
+ln -s ~/.local/share/loop-engineering-skill/claude \
+  ~/.claude/skills/loop-engineering
+ln -s ~/.local/share/loop-engineering-skill/codex \
+  ~/.codex/skills/loop-engineering
 ```
 
-It auto-resolves the current sprint — the highest `sprint_N` under `docs/sprints` (or `sprint_0` if none). Pass a
-specific folder (`/loop-engineering docs/sprints/sprint_3 …`) to override, or run bare (`/loop-engineering`) to resume.
+Verify both entries resolve into that one checkout:
 
-- **Sprint empty yet?** From your description it generates one **folder per ticket**, each holding a `<slug>_ticket.html`
-  + `<slug>_status.html` pair and a `<subtask>_plan.html` + `<subtask>_status.html` pair per subtask, then runs the
-  sprint autonomously.
-- **Tickets exist?** It reads the ticket + subtask pages and resumes from the next ready ticket.
+```sh
+set -eu
+test -L ~/.claude/skills/loop-engineering
+test -L ~/.codex/skills/loop-engineering
+(cd ~/.claude/skills/loop-engineering && pwd -P)
+(cd ~/.codex/skills/loop-engineering && pwd -P)
+```
 
-## Layout
+Claude Code still needs a local discovery entry and Codex still needs a local discovery entry. The entries are
+symlinks, not copied skills, so the Git checkout remains the only maintained source.
 
-| File | Role |
-|------|------|
-| `SKILL.md` | The master loop — resolve `sprint_N` → per-ticket folders → autonomous, risk-gated auto-merge. |
-| `task-flow.mjs` | The per-ticket engine (a Claude Code Workflow): recon → design → spec → code → validate → docs → clean-room verify. |
-| `CONFIG.md` | The per-repo config schema (`.claude/loop-engineering.json`). |
-| `templates/` | Self-rendering HTML templates: `ticket` (ticket spec), `status` (ticket- **and** subtask-level tracker), `plan` (subtask plan). |
-| `examples/example.json` | A complete worked config. |
+## Update Safely
 
-## What makes it safe to run unattended
+Keep the live checkout clean and on `main`. Confirm that `git status --short` prints nothing before updating:
 
-- **Clean-room verify** — independent agents judge only the contract + diff + PR body, never the coder's reasoning.
-- **Test matrix first** — every task designs happy + negative + edge cases before writing tests; happy-path-only suites are rejected.
-- **Anti-tamper gate** — the coder can't delete/weaken tests or loosen CI to go green (mechanically checked).
-- **Held-out test** — the verifier runs one independent, perturbed-input test the coder never saw.
-- **Risk-gated auto-merge** — schema/auth/migrations/CI/deletes pause for a human; only low-risk diffs merge unattended.
-- **Cross-task failure ledger** — each task's defects feed forward so the next task doesn't repeat them.
-- **Per-task token ceiling** — a stuck task escalates to a human instead of grinding (more fix rounds raise hack-rate, not correctness).
-- **Human-in-the-loop** — any stage can pause to ask a question rather than guess.
+```sh
+set -eu
+repo="$HOME/.local/share/loop-engineering-skill"
+test -z "$(git -C "$repo" status --porcelain)"
+git -C "$repo" switch main
+git -C "$repo" pull --ff-only origin main
+```
 
-Project specifics (commands, infra, rules, test channels, risk paths) live in each repo's own
-`.claude/loop-engineering.json`, bootstrapped on first run. See [`CONFIG.md`](CONFIG.md).
+Develop changes on a separate clone or worktree so an uncommitted feature branch does not silently become the live
+Claude and Codex skill.
+
+## Canonical Sprint Layout
+
+```text
+docs/sprints/sprint_3/
+  bunnyos-cpa-chatbox/
+    index.html
+    s3-t1-tenant-security_plan.html
+    s3-t1-tenant-security_status.html
+    s3-t1-st1-rls-foundation_plan.html
+    s3-t1-st1-rls-foundation_status.html
+    s3-t2-agent-runtime_plan.html
+    s3-t2-agent-runtime_status.html
+```
+
+Rules:
+
+- One related parent feature or large product ticket creates exactly one direct feature/program folder.
+- Internal implementation tickets and subtasks create flat page pairs, never nested folders.
+- `index.html` traces all pages, dependencies, states, branches, PRs, and merges.
+- One internal implementation ticket is one branch, one PR, and one risk-gated merge.
+- Legacy ticket-folder and monolithic layouts remain readable but are not used for new work.
+
+## Repository Layout
+
+| Path | Role |
+|---|---|
+| `claude/` | Claude Code adapter, config reference, Workflow engine, page helper, and templates. |
+| `codex/` | Codex adapter, config mapping, page helper, templates, and agent metadata. |
+| `tests/` | Cross-runtime contract tests that prevent the adapters from drifting. |
+
+## Runtime Use
+
+Claude Code:
+
+```text
+/loop-engineering docs/sprints/sprint_3 Build the BunnyOS CPA chatbox
+```
+
+Codex:
+
+```text
+Use $loop-engineering for docs/sprints/sprint_3 program=bunnyos-cpa-chatbox dryRun.
+```
+
+Project-specific commands, architecture rules, test channels, and risk paths belong in the target repository's
+`.claude/loop-engineering.json` or `.codex/loop-engineering.json`. The Codex adapter can translate an existing Claude
+config in memory, so a project does not need duplicate config files.
+
+## Validate
+
+```sh
+python3 claude/tests/test_loop_pages.py
+python3 codex/tests/test_loop_pages.py
+python3 tests/test_runtime_contract.py
+```
+
+The page tests cover flat-file bootstrapping, index refreshes, natural ID ordering, collision prevention, and path
+traversal rejection. The runtime contract test ensures both adapters preserve the same single-program-folder rules.

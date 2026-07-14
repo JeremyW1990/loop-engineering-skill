@@ -1,6 +1,9 @@
 {
   "tracking": {
-    "commit": true
+    "commit": true,
+    "sprintsRoot": "docs/sprints",
+    "layout": "program-folder",
+    "index": "index.html"
   },
   "git": {
     "baseBranch": "main",

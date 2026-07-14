@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loop Engineering"
+  short_description: "Risk-gated sprint implementation loop"
+  default_prompt: "Use $loop-engineering to run the next ready ticket from the current indexed program folder under docs/sprints/sprint_x."
