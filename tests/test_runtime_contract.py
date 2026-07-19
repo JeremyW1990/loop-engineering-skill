@@ -52,6 +52,15 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("honor an explicit `git.branchPrefix`", skill)
         self.assertIn("honor the configured value", config)
 
+    def test_ticket_crafting_requires_a_fresh_remote_base(self) -> None:
+        for adapter in ADAPTERS:
+            skill = (adapter / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(adapter=adapter.name):
+                self.assertIn("git fetch --prune origin", skill)
+                self.assertIn("git pull --ff-only origin <git.baseBranch>", skill)
+                self.assertIn("origin/<git.baseBranch>", skill)
+                self.assertIn("Never resolve the current sprint", skill)
+
     def test_runtime_safety_defaults_do_not_diverge(self) -> None:
         claude = (REPO / "claude" / "SKILL.md").read_text(encoding="utf-8")
         codex = (REPO / "codex" / "SKILL.md").read_text(encoding="utf-8")

@@ -63,23 +63,38 @@ Rules:
   - Flat per-ticket pairs: `{slug}_ticket.html` plus `{slug}_status.html`; treat each as one ticket with one synthetic subtask.
   - Monolithic pairs: `implementation_plan.html` plus `implementation_status.html`; use only as a fallback for old sprints.
 
+## Fresh-Base Gate
+
+Run this gate before resolving the current sprint, crafting or updating ticket pages, or starting recon for a new ticket:
+
+1. Read only the configured `git.baseBranch` when available; default to `develop` (HeyApril uses `develop`).
+2. Record `git status --short --branch`, then run `git fetch --prune origin`.
+3. When the worktree is clean and the local base has no local-only commits, switch to the base and run
+   `git pull --ff-only origin <git.baseBranch>`.
+4. If the worktree is dirty or the local base has diverged, preserve it: never reset, stash, or merge it automatically.
+   Create or use a clean ticket branch/worktree directly from `origin/<git.baseBranch>` and report the preserved local
+   state to the user.
+5. Verify the ticket base is not behind `origin/<git.baseBranch>`. Only then reload repo instructions/config/design docs
+   from that updated tree. Never resolve the current sprint or craft ticket pages from pre-fetch state.
+
 ## Load Order
 
-1. Read repo instructions first: `AGENTS.md`, `CLAUDE.md` when present, and any files named in the project config's `project.readFirst`.
-2. Read project config:
+1. Pass the Fresh-Base Gate above.
+2. Read repo instructions first: `AGENTS.md`, `CLAUDE.md` when present, and any files named in the project config's `project.readFirst`.
+3. Read project config:
    - Prefer `.codex/loop-engineering.json` when present.
    - Otherwise read `.claude/loop-engineering.json` and translate it in memory.
    - If neither exists, read [references/config.md](references/config.md), inspect the repo, draft `.codex/loop-engineering.json`, and ask the user before writing it.
-3. Resolve the sprint folder:
+4. Resolve the sprint folder:
    - Use the requested sprint folder when supplied.
    - Otherwise inspect `docs/sprints/sprint_*`; use the highest numeric suffix.
    - If no `docs/sprints/sprint_*` exists, use `docs/sprints/sprint_0`.
-4. Discover pages in this order:
+5. Discover pages in this order:
    - Preferred program folders: `index.html` plus direct-child, ID-prefixed ticket/subtask `*_plan.html` / `*_status.html` pairs. Read `program-data` first for order and traceability, then verify every entry against the authoritative plan/status page.
    - Legacy ticket folders: `ticket_plan.html` plus `ticket_status.html`, with recursive subtask `*_plan.html` / `*_status.html` pairs.
    - Legacy flat `{slug}_ticket.html` plus `{slug}_status.html`.
    - Legacy `implementation_plan.html` plus `implementation_status.html`.
-5. Extract only the JSON in:
+6. Extract only the JSON in:
    - `<script id="program-data" type="application/json">` for a preferred program index.
    - `<script id="plan-data" type="application/json">` for new ticket/subtask plans.
    - `<script id="ticket-data" type="application/json">` for legacy flat ticket plans.

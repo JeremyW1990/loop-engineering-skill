@@ -62,15 +62,23 @@ a complete worked example.
 
 ## Step 1 · Resolve the sprint + its tickets (once per invocation)
 
-**1a · Resolve the sprint folder (numbering).** Determine the sprints root: the explicit path arg if it is a sprints
+**1a · Fresh-base gate (before sprint discovery or ticket crafting).** Read only the configured `git.baseBranch`
+(default `develop`), record `git status --short --branch`, and run `git fetch --prune origin`. If the worktree is clean
+and the local base has no local-only commits, switch to it and run `git pull --ff-only origin <git.baseBranch>`. If the
+tree is dirty or the local base has diverged, preserve it — never reset, stash, or merge it automatically — and create
+or use a clean ticket branch/worktree directly from `origin/<git.baseBranch>`. Tell the human what local state was
+preserved. Verify the ticket base is not behind the remote, then reload repo instructions/config/design docs from that
+updated tree. **Never resolve the current sprint or craft ticket pages from pre-fetch state.**
+
+**1b · Resolve the sprint folder (numbering).** Determine the sprints root: the explicit path arg if it is a sprints
 root, else `tracking.sprintsRoot` (default `docs/sprints`). If the arg is instead a *specific* `sprint_*` folder, use it
-directly and skip the rest of 1a. Otherwise:
+directly and skip the rest of 1b. Otherwise:
 - `ls -d <root>/sprint_*/ 2>/dev/null` and parse the integer suffix of each. **If any exist, the current sprint is the
   one with the highest N** (`<root>/sprint_<max>`). **If none exist, the current sprint is `<root>/sprint_0`.**
 - **Bootstrap and resume BOTH target this current (max, or 0) sprint** — never auto-create `sprint_<max+1>`. To start a
   brand-new sprint, the human creates `<root>/sprint_<N+1>` (or passes it explicitly); only then does it become the max.
 
-**1b · The canonical sprint layout.** In product conversation, “ticket” may mean the whole large feature. Resolve that
+**1c · The canonical sprint layout.** In product conversation, “ticket” may mean the whole large feature. Resolve that
 ambiguity in favor of the user's folder model:
 
 ```text
@@ -98,7 +106,7 @@ docs/sprints/sprint_N/
 - New work must use this layout. Legacy ticket-folder, flat-ticket, and monolithic sprint layouts remain readable but
   must not be copied into new work or reorganized unless the user explicitly asks for a migration.
 
-**1c · Resume vs bootstrap.** Use `scripts/loop_pages.py` for extraction, validation, discovery, bootstrapping, and
+**1d · Resume vs bootstrap.** Use `scripts/loop_pages.py` for extraction, validation, discovery, bootstrapping, and
 index refreshes; do not hand-edit rendered HTML.
 
 - **A direct child has `index.html` with `program-data` → RESUME.** Validate its index, discover its authoritative flat
@@ -135,8 +143,8 @@ that JSON block, then refresh and validate the program index.
 
 ## Preflight (once per invocation)
 
-1. `git switch <git.baseBranch> && git pull --ff-only`. Abort if the tree is dirty (ask the user — uncommitted work is
-   theirs).
+1. Reconfirm the Step 1a fresh-base gate: fetch `origin` and verify the ticket base is still not behind
+   `origin/<git.baseBranch>`. Preserve and report any new local divergence; never reset or stash it automatically.
 2. Local infra up: run each `preflight.infra` command (idempotent — e.g. `docker compose up -d`), then each
    `preflight.healthChecks` command; all must pass before continuing.
 3. Dev servers (only if the config defines `preflight.devServers`): run its `check` command. If down, run `start`
